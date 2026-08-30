@@ -1,0 +1,155 @@
+================================================================================
+                        MANDIMIND — PROJECT OVERVIEW & CAPABILITIES
+================================================================================
+
+1. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+MandiMind is an AI-powered agricultural demand, price, and inventory intelligence
+platform designed to support decision-making for farmers, agricultural traders/sellers,
+and market analysts.
+
+Core Value Proposition:
+- Enables agricultural stakeholders to make data-driven procurement and planting
+  decisions before market prices shift.
+- Reduces post-harvest spoilage and overstocking by quantifying risk and expected profit.
+- Provides actionable recommendations with clear explainability (SHAP / feature-gain)
+  rather than "black-box" predictions.
+- Employs strict data-transparency standards (clearly labeling simulated demo data
+  vs. AI forecasts vs. live feeds).
+
+================================================================================
+2. SYSTEM ARCHITECTURE & TECHNOLOGY STACK
+================================================================================
+
+The application is structured into four decoupled layers, orchestrated via Docker Compose:
+
++-------------------------------------------------------------------------------+
+|                               FRONTEND LAYER                                  |
+|  React 18, Vite, Tailwind CSS, React Router, Recharts, Leaflet, Lucide Icons  |
++-------------------------------------------------------------------------------+
+                                       | HTTP / REST API (Port 5173 -> 5000)
++-------------------------------------------------------------------------------+
+|                                BACKEND LAYER                                  |
+|  Node.js (ES Modules), Express.js, JWT Auth, Mongoose ODM, Helmet Security    |
++-------------------------------------------------------------------------------+
+                   | MongoDB (Port 27017)             | HTTP Client (Port 8000)
++------------------+------------------+  +------------+-------------------------+
+|          DATABASE LAYER             |  |            ML SERVICE LAYER            |
+|  MongoDB 7 (Docker Volume)          |  |  FastAPI (Python 3.11), scikit-learn,  |
+|  Pre-seeded demo dataset            |  |  XGBoost, SciPy, SHAP, IsolationForest  |
++-------------------------------------+  +----------------------------------------+
+
+================================================================================
+3. CORE SYSTEM CAPABILITIES & FEATURES
+================================================================================
+
+[A] SELLER & TRADER INTELLIGENCE DASHBOARD
+- AI Procurement Recommendations: Generates optimal purchase quantities (e.g., BUY 250 KG),
+  expected profit in INR, confidence scores, and risk classifications (LOW, MODERATE, HIGH, CRITICAL).
+- Demand & Price Forecasting: 7-day expected demand curves and price trend direction
+  (with upper and lower confidence bounds).
+- Inventory Health Monitoring: Tracks commodity age, spoilage risk based on weather
+  (temperature & humidity), and alerts overstocked or depleted items.
+- Supply & Demand Imbalance: Calculates mandi surplus or shortage risk.
+
+[B] FARMER CROP RANKING & PLANNING
+- Land & Budget Optimization: Ranks crops (Tomato, Onion, Chilli, Potato, Spinach)
+  based on land size (acres), irrigation type (drip/canal/rainfed), soil type, and budget.
+- Risk-Adjusted Opportunity: Evaluates expected yield, revenue, input costs, and water sensitivity
+  to compute net return without promising guaranteed profit.
+- Jargon-Free Explanations: Formats recommendations in accessible, farmer-friendly terms.
+
+[C] SPATIAL & MARKET COMPARISON ANALYTICS
+- Interactive Mandi Map: Visualizes regional mandis (e.g., Kothapet, Azadpur, Vashi, KR Market)
+  with geospatial location markers, current arrival volumes, price trends, and weather overlays.
+- Cross-Market Arbitrage & Comparison: Compares purchase price, transport cost, distance,
+  and mandi quality scores to highlight optimal buying/selling mandis.
+
+[D] ML PREDICTION & OPTIMIZATION PIPELINE
+- Demand Forecasting (`demand_xgb`): Gradient boosting model predicting commodity demand.
+- Price Forecasting (`price_xgb`): Forecasts expected market price and directional trend.
+- Supply Forecasting (`supply_xgb`): Predicts market arrivals and oversupply/shortage probability.
+- Spoilage Model: Computes decay probabilities based on perishability class, humidity, temperature,
+  and stock turnover days.
+- Procurement Bounded Optimization: Uses SciPy `minimize_scalar` to maximize expected net profit
+  under budget, storage capacity, and spoilage constraints.
+- Model Explainability (SHAP TreeExplainer): Deconstructs AI forecasts into key impacting drivers
+  (e.g., rainfall impact, seasonality, recent demand, inventory age).
+- Anomaly Detection: Uses IsolationForest and z-score overlays to catch price spikes and market drops.
+
+[E] "WHAT-IF" MARKET SCENARIO SIMULATOR
+- Dynamic Scenario Testing: Allows sellers to adjust weather parameters, arrival growth %,
+  demand shifts, and budget limits to simulate market outcomes before committing capital.
+- Delta Analysis: Computes percentage changes in expected profit, revenue, and spoilage risk.
+
+[F] ADMINISTRATIVE & MODEL GOVERNANCE
+- Model Performance Tracking: Displays benchmark evaluation metrics (MAE, RMSE, MAPE)
+  comparing gradient boosting models against naive baselines.
+- Real-time ML Service Health Checks: Detects whether FastAPI ML backend is reachable
+  and gracefully falls back to deterministic local optimization heuristics if offline.
+- System Alerts: Manages market anomaly warnings, oversupply alerts, and stock degradation notices.
+
+================================================================================
+4. DATA TRANSPARENCY STANDARD
+================================================================================
+MandiMind enforces strict data labeling across all responses:
+- "SIMULATED": Pre-seeded historical demo series (clearly declared in header badges).
+- "AI_FORECAST": Outputs generated by machine learning models.
+- "HISTORICAL": Evaluation split metrics for model verification.
+- "LIVE": Reserved exclusively for verified government feeds (disabled by default in demo mode).
+
+================================================================================
+5. USER ROLES & ACCESS MATRIX
+================================================================================
+
+Role      | Key Access Areas
+----------+---------------------------------------------------------------------
+Seller    | Seller Dashboard, Inventory, Recommendations, What-If Simulator,
+          | Market Comparison, Mandi Map, Price Forecasts
+Farmer    | Farmer Crop Ranking Page, Mandi Map, Regional Demand Trends
+Admin     | System Overview, ML Model Performance, All Alerts, Admin Dashboard
+
+Demo Credentials (Pre-seeded):
+- Seller: seller@mandimind.demo / demo1234
+- Farmer: farmer@mandimind.demo / demo1234
+- Admin:  admin@mandimind.demo  / demo1234
+
+================================================================================
+6. REPOSITORY STRUCTURE DIRECTORY
+================================================================================
+
+/
+├── backend/                  # Express.js REST API
+│   ├── src/
+│   │   ├── config/           # DB connection & environment config
+│   │   ├── controllers/      # Dashboard, auth, admin & intelligence business logic
+│   │   ├── middleware/       # JWT Auth, error handling, rate limiting
+│   │   ├── models/           # Mongoose schemas (User, Commodity, Market, Sale, etc.)
+│   │   ├── routes/           # REST endpoints (/api/auth, /api/dashboard, etc.)
+│   │   ├── seed/             # Demo data generator
+│   │   └── services/         # ML client, data adapters, local optimization
+│   └── Dockerfile
+├── frontend/                 # React + Vite Web Application
+│   ├── src/
+│   │   ├── components/       # Reusable UI cards, charts, maps & badges
+│   │   ├── context/          # AuthContext, ThemeContext, ToastContext
+│   │   ├── pages/            # Dashboard, Farmer, Simulator, Map, Admin pages
+│   │   └── services/         # Axios API client
+│   └── Dockerfile
+├── ml-service/               # FastAPI Python ML Microservice
+│   ├── app/                  # Inference, training, optimization, SHAP & FastAPI routes
+│   └── Dockerfile
+└── docker-compose.yml        # Container orchestration specification
+
+================================================================================
+7. HOW TO RUN THE APPLICATION
+================================================================================
+
+Quick Start with Docker Compose:
+$ docker compose up --build
+
+Application URLs:
+- Web Frontend:  http://localhost:5173
+- Express API:   http://localhost:5000/api/health
+- ML FastAPI:    http://localhost:8000/health
+================================================================================
