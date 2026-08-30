@@ -1,6 +1,22 @@
 {
   "rewrites": [
     {
+      "source": "/login",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/matches",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/marketplace",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/dashboard",
+      "destination": "/index.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
