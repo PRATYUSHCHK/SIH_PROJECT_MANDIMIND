@@ -11,6 +11,7 @@ const offerSchema = new mongoose.Schema(
     totalValueInr: { type: Number, required: true },
     message: { type: String, default: '' },
     status: { type: String, enum: ['pending', 'accepted', 'rejected', 'expired', 'cancelled'], default: 'pending' },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     dataStatus: { type: String, default: 'SIMULATED' },
   },
   { timestamps: true }

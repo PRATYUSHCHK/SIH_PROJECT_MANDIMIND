@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useTranslation } from '../i18n/index.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { DataStatusBadge } from '../components/DataStatusBadge.jsx';
 import { ErrorState, LoadingSkeleton } from '../components/States.jsx';
@@ -21,125 +23,230 @@ import {
   Route,
   Weight,
   Check,
+  Receipt,
+  ArrowRight,
+  Sparkles,
 } from 'lucide-react';
 
 export default function LogisticsPage() {
   const { user } = useAuth();
-  const [listings, setListings] = useState([]);
-  const [requirements, setRequirements] = useState([]);
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const paramTxId = searchParams.get('transactionId');
+
+  const [transactions, setTransactions] = useState([]);
+  const [selectedTxId, setSelectedTxId] = useState(paramTxId || '');
   const [logistics, setLogistics] = useState(null);
-  const [selectedListing, setSelectedListing] = useState('');
-  const [selectedRequirement, setSelectedRequirement] = useState('');
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
+  const [advancing, setAdvancing] = useState(false);
 
   async function loadData() {
     setLoading(true);
     setErr('');
     try {
-      const [listRes, reqRes] = await Promise.all([
-        api.get('/marketplace/listings'),
-        api.get('/marketplace/requirements'),
-      ]);
-      setListings(listRes.data.listings || []);
-      setRequirements(reqRes.data.requirements || []);
+      const { data } = await api.get('/marketplace/transactions');
+      const allTx = data.transactions || [];
+      // Filter for accepted/in-progress/completed transactions
+      const relevant = allTx.filter((t) =>
+        ['accepted', 'logistics_planned', 'in_transit', 'delivered', 'completed'].includes(t.status)
+      );
+      setTransactions(relevant);
+
+      const targetId = paramTxId || (relevant.length > 0 ? relevant[0]._id : '');
+      if (targetId) {
+        setSelectedTxId(targetId);
+        await calculateRouteForTx(targetId);
+      }
     } catch (e) {
       setErr(e.response?.data?.error || e.message);
     }
     setLoading(false);
   }
 
-  async function calculateRoute() {
-    if (!selectedListing) return;
+  async function calculateRouteForTx(txId) {
+    if (!txId) return;
     setCalculating(true);
+    setErr('');
     try {
-      const params = new URLSearchParams({ listingId: selectedListing });
-      if (selectedRequirement) params.append('requirementId', selectedRequirement);
-      const { data } = await api.get(`/marketplace/logistics?${params}`);
-      setLogistics(data.logistics);
+      const { data } = await api.get('/marketplace/logistics/calculate', {
+        params: { transactionId: txId },
+      });
+      setLogistics(data);
     } catch (e) {
-      alert('Failed to calculate logistics');
+      setErr(e.response?.data?.error || e.message);
     }
     setCalculating(false);
+  }
+
+  function handleSelectTx(id) {
+    setSelectedTxId(id);
+    setSearchParams({ transactionId: id });
+    calculateRouteForTx(id);
+  }
+
+  async function advanceStatus(newStatus) {
+    if (!selectedTxId) return;
+    setAdvancing(true);
+    try {
+      await api.patch(`/marketplace/transactions/${selectedTxId}/status`, { status: newStatus });
+      await loadData();
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to update status');
+    }
+    setAdvancing(false);
   }
 
   useEffect(() => {
     loadData();
   }, []);
 
-  if (err) return <ErrorState message={err} onRetry={loadData} />;
+  if (err && !loading && !logistics) return <ErrorState message={err} onRetry={loadData} />;
   if (loading) return <LoadingSkeleton />;
+
+  const selectedTx = transactions.find((t) => t._id === selectedTxId);
+
+  // Correct pickup & delivery locations strictly from selected transaction
+  const pickupLocation = selectedTx?.listing?.location || selectedTx?.farmer?.location || 'Nalgonda';
+  const deliveryLocation =
+    selectedTx?.requirement?.deliveryLocation ||
+    selectedTx?.buyer?.location ||
+    'Hyderabad';
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Logistics Optimization"
-        title="Delivery Route & Cost Calculator"
-        subtitle="AI-optimized transport routes with cost comparison. Clearly labeled as SIMULATED estimates."
+        eyebrow={t('logistics.eyebrow', 'Logistics Optimization')}
+        title={t('logistics.title', 'Delivery Route & Cost Calculator')}
+        subtitle={t('logistics.subtitle', 'AI-optimized transport routes derived from accepted transactions with cost comparison.')}
         actions={<DataStatusBadge status="SIMULATED" />}
       />
 
       <div className="rounded-xl border border-harvest/30 bg-harvest/5 px-4 py-2 text-xs text-ink dark:bg-harvest/10">
-        <span className="font-bold">⚠ Note:</span> Route calculations use simulated distance estimates.
-        A real routing API (Google Maps, OSRM) can be integrated for production use.
+        <span className="font-bold">⚠ Note:</span> Route calculations use simulated distance estimates derived from the accepted transaction.
       </div>
 
-      {/* Selection form */}
-      <div className="rounded-mm border border-line bg-white p-5 dark:border-night-mute/20 dark:bg-night-card">
-        <h3 className="mb-3 font-bold text-ink dark:text-night-text">Calculate Delivery Plan</h3>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label className="block text-xs font-bold uppercase text-mute mb-1">Pickup Listing</label>
-            <select
-              value={selectedListing}
-              onChange={(e) => setSelectedListing(e.target.value)}
-              className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20"
+      {/* Transaction selection & Route configuration */}
+      {transactions.length === 0 ? (
+        <div className="rounded-mm border border-dashed border-line bg-earth/30 p-12 text-center dark:border-night-mute/20 dark:bg-night-lift/30">
+          <Truck size={36} className="mx-auto text-mute" />
+          <h3 className="mt-3 text-base font-bold text-ink dark:text-night-text">{t('logistics.noAcceptedTx', 'No accepted transactions available for logistics')}</h3>
+          <p className="mt-1 text-xs text-mute max-w-md mx-auto">
+            {t('logistics.noAcceptedDesc', 'Logistics routes are created from accepted marketplace transactions. Accept an offer in Transactions or AI Matches to calculate and plan delivery.')}
+          </p>
+          <div className="mt-4 flex justify-center gap-3">
+            <button
+              onClick={() => navigate('/transactions')}
+              className="rounded-lg bg-forest px-4 py-2 text-xs font-bold text-white hover:bg-forest-deep transition-colors"
             >
-              <option value="">Select a listing</option>
-              {listings.map((l) => (
-                <option key={l._id} value={l._id}>
-                  {l.commodityName} — {l.quantityKg} kg — {l.location} (₹{l.expectedPriceInr}/kg)
+              {t('nav.transactions', 'View Transactions')}
+            </button>
+            <button
+              onClick={() => navigate('/matches')}
+              className="rounded-lg border border-line px-4 py-2 text-xs font-bold text-ink hover:bg-earth dark:border-night-mute/20 dark:text-night-text transition-colors"
+            >
+              {t('nav.matches', 'View AI Matches')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-mm border border-line bg-white p-5 shadow-card dark:border-night-mute/20 dark:bg-night-card space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line/60 pb-3 dark:border-night-mute/30">
+            <div>
+              <h3 className="font-bold text-ink dark:text-night-text">{t('logistics.selectTx', 'Select Accepted Transaction')}</h3>
+              <p className="text-xs text-mute">Logistics parameters are locked to the verified transaction record.</p>
+            </div>
+            {selectedTx && (
+              <span className="rounded-full bg-forest/10 px-3 py-1 text-xs font-extrabold uppercase text-forest dark:bg-harvest/15 dark:text-harvest">
+                {t('common.status', 'Status')}: {t(`transactions.${selectedTx.status}`, selectedTx.status?.replace('_', ' '))}
+              </span>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase text-mute mb-1">{t('logistics.selectTx', 'Accepted Transaction')}</label>
+            <select
+              value={selectedTxId}
+              onChange={(e) => handleSelectTx(e.target.value)}
+              className="w-full rounded-lg border border-line px-3 py-2.5 text-sm dark:bg-night-lift dark:border-night-mute/20 font-medium"
+            >
+              {transactions.map((tx) => (
+                <option key={tx._id} value={tx._id}>
+                  {tx.commodityName} — {tx.quantityKg} kg | {tx.farmer?.name || 'Supplier'} → {tx.buyer?.name || 'Buyer'} (₹{tx.agreedPriceInr}/kg)
                 </option>
               ))}
             </select>
           </div>
-          <div>
-            <label className="block text-xs font-bold uppercase text-mute mb-1">Delivery Destination</label>
-            <select
-              value={selectedRequirement}
-              onChange={(e) => setSelectedRequirement(e.target.value)}
-              className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20"
-            >
-              <option value="">Select a buyer requirement</option>
-              {requirements.map((r) => (
-                <option key={r._id} value={r._id}>
-                  {r.commodityName} — {r.quantityKg} kg — {r.deliveryLocation}
-                </option>
-              ))}
-            </select>
+
+          {/* Unified Transaction Details */}
+          {selectedTx && (
+            <div className="grid gap-4 sm:grid-cols-2 pt-2">
+              <div className="rounded-lg border border-line/70 bg-earth/40 p-4 dark:border-night-mute/30 dark:bg-night-lift/30">
+                <div className="text-[10px] font-extrabold uppercase tracking-wider text-forest dark:text-harvest">
+                  {t('logistics.pickup', 'Pickup Listing (Supplier)')}
+                </div>
+                <div className="mt-2 font-bold text-ink dark:text-night-text">
+                  {selectedTx.commodityName} — {selectedTx.quantityKg} kg — {pickupLocation}
+                </div>
+                <div className="mt-1 text-xs text-mute">
+                  {t('auth.farmerDemo', 'Supplier')}: {selectedTx.farmer?.name || 'Farmer'} • ₹{selectedTx.agreedPriceInr}/kg
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-line/70 bg-earth/40 p-4 dark:border-night-mute/30 dark:bg-night-lift/30">
+                <div className="text-[10px] font-extrabold uppercase tracking-wider text-harvest">
+                  {t('logistics.delivery', 'Delivery Destination (Buyer)')}
+                </div>
+                <div className="mt-2 font-bold text-ink dark:text-night-text">
+                  {selectedTx.commodityName} — {selectedTx.quantityKg} kg — {deliveryLocation}
+                </div>
+                <div className="mt-1 text-xs text-mute">
+                  {t('auth.buyerDemo', 'Buyer')}: {selectedTx.buyer?.name || 'Buyer'} • {t('transactions.totalValue', 'Total')} ₹{selectedTx.totalValueInr?.toLocaleString('en-IN')}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+            <div className="text-xs text-mute">
+              {t('common.commodity', 'Commodity')}: <strong className="text-ink dark:text-night-text">{selectedTx?.commodityName}</strong> • {t('common.quantity', 'Quantity')}: <strong className="text-ink dark:text-night-text">{selectedTx?.quantityKg} kg</strong>
+            </div>
+            <div className="flex gap-2">
+              {selectedTx?.status === 'accepted' && (
+                <button
+                  onClick={() => advanceStatus('logistics_planned')}
+                  disabled={advancing}
+                  className="flex items-center gap-1.5 rounded-lg border border-forest/30 bg-forest/10 px-4 py-2 text-xs font-bold text-forest hover:bg-forest hover:text-white transition-colors dark:border-harvest/30 dark:bg-harvest/10 dark:text-harvest"
+                >
+                  <Check size={14} />
+                  {advancing ? t('common.loading', 'Saving...') : t('logistics.confirmPlan', 'Confirm Logistics Plan')}
+                </button>
+              )}
+              <button
+                onClick={() => calculateRouteForTx(selectedTxId)}
+                disabled={!selectedTxId || calculating}
+                className="flex items-center gap-2 rounded-lg bg-forest px-4 py-2 text-xs font-bold text-white hover:bg-forest-deep disabled:opacity-50 transition-colors"
+              >
+                <Navigation size={14} />
+                {calculating ? 'Calculating...' : 'Calculate Route'}
+              </button>
+            </div>
           </div>
         </div>
-        <div className="mt-4 flex justify-end">
-          <button
-            onClick={calculateRoute}
-            disabled={!selectedListing || calculating}
-            className="flex items-center gap-2 rounded-lg bg-forest px-4 py-2.5 text-sm font-bold text-white hover:bg-forest-deep disabled:opacity-50 transition-colors"
-          >
-            <Navigation size={14} />
-            {calculating ? 'Calculating...' : 'Calculate Route'}
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Logistics results */}
-      {logistics && (
+      {logistics && selectedTx && (
         <>
           {/* Delivery Plan Card */}
           <div className="rounded-mm border border-line bg-white p-6 shadow-card dark:border-night-mute/20 dark:bg-night-card">
             <div className="flex items-center gap-2 mb-4">
               <Truck size={18} className="text-forest" />
-              <h3 className="font-bold text-ink dark:text-night-text">Delivery Plan</h3>
+              <h3 className="font-bold text-ink dark:text-night-text">
+                Delivery Plan: {logistics.commodityName || selectedTx.commodityName} ({logistics.quantityKg} kg)
+              </h3>
               <DataStatusBadge status="SIMULATED" />
             </div>
 
@@ -267,14 +374,22 @@ export default function LogisticsPage() {
                 radius={10}
                 pathOptions={{ color: '#166534', fillColor: '#166534', fillOpacity: 0.8 }}
               >
-                <Popup><strong>Pickup:</strong> {logistics.pickup.location}</Popup>
+                <Popup>
+                  <strong>Pickup:</strong> {logistics.pickup.location}
+                  <br />
+                  {selectedTx.commodityName} — {selectedTx.quantityKg} kg
+                </Popup>
               </CircleMarker>
               <CircleMarker
                 center={[logistics.delivery.lat, logistics.delivery.lng]}
                 radius={10}
                 pathOptions={{ color: '#EAB308', fillColor: '#EAB308', fillOpacity: 0.8 }}
               >
-                <Popup><strong>Delivery:</strong> {logistics.delivery.location}</Popup>
+                <Popup>
+                  <strong>Delivery:</strong> {logistics.delivery.location}
+                  <br />
+                  {selectedTx.commodityName} — {selectedTx.quantityKg} kg
+                </Popup>
               </CircleMarker>
               <Polyline
                 positions={[
@@ -287,7 +402,7 @@ export default function LogisticsPage() {
           </div>
 
           <div className="text-xs text-mute">
-            <DataStatusBadge status="SIMULATED" /> All route and cost calculations are simulated estimates.
+            <DataStatusBadge status="SIMULATED" /> All route and cost calculations are simulated estimates based on the accepted transaction.
           </div>
         </>
       )}

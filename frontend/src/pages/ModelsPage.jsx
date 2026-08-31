@@ -2,15 +2,21 @@ import { useEffect, useState } from 'react';
 import { api } from '../services/api.js';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { DataStatusBadge } from '../components/DataStatusBadge.jsx';
+import { useTranslation } from '../i18n/index.jsx';
 
 export default function ModelsPage() {
+  const { t } = useTranslation();
   const [data, setData] = useState(null);
   useEffect(() => {
     api.get('/models/performance').then((r) => setData(r.data));
   }, []);
   return (
     <div>
-      <PageHeader title="Model performance" subtitle={data?.note} actions={<DataStatusBadge status="HISTORICAL" />} />
+      <PageHeader
+        title={t('models.title', 'Model Performance & Diagnostics')}
+        subtitle={data?.note || t('models.subtitle', 'Track accuracy, RMSE, MAPE, and validation metrics for price forecasting algorithms.')}
+        actions={<DataStatusBadge status="HISTORICAL" />}
+      />
       <div className="overflow-x-auto rounded-mm border border-line bg-white p-4 dark:bg-night-card">
         <table className="w-full text-sm">
           <thead>

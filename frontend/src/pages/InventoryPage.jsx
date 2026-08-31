@@ -2,15 +2,20 @@ import { useEffect, useState } from 'react';
 import { api } from '../services/api.js';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { InventoryHealth } from '../components/InventoryHealth.jsx';
+import { useTranslation } from '../i18n/index.jsx';
 
 export default function InventoryPage() {
+  const { t } = useTranslation();
   const [data, setData] = useState(null);
   useEffect(() => {
     api.get('/inventory').then((r) => setData(r.data));
   }, []);
   return (
     <div className="space-y-6">
-      <PageHeader title="Inventory" subtitle="When stock is excess or perishable, MandiMind suggests an action with estimated financial impact." />
+      <PageHeader
+        title={t('inventory.title', 'Inventory Management')}
+        subtitle={t('inventory.subtitle', 'Track batch stock levels, warehouse conditions, shelf life, and estimated spoilage risk.')}
+      />
       <InventoryHealth
         items={(data?.items || []).map((i) => ({
           commodity: i.commodity.name,

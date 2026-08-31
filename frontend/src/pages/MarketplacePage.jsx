@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useTranslation } from '../i18n/index.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { DataStatusBadge } from '../components/DataStatusBadge.jsx';
 import { ErrorState, LoadingSkeleton } from '../components/States.jsx';
@@ -19,6 +21,7 @@ import {
 } from 'lucide-react';
 
 function CreateListingForm({ commodities, onClose, onCreated }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     commodity: '',
     commodityName: 'Tomato',
@@ -54,12 +57,12 @@ function CreateListingForm({ commodities, onClose, onCreated }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-lg rounded-mm bg-white p-6 shadow-card dark:bg-night-card max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold">List Your Produce</h2>
+          <h2 className="text-lg font-bold">{t('marketplace.createListingTitle', 'List Your Produce')}</h2>
           <button onClick={onClose} className="text-mute hover:text-ink"><X size={20} /></button>
         </div>
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <label className="block text-xs font-bold uppercase text-mute mb-1">Commodity</label>
+            <label className="block text-xs font-bold uppercase text-mute mb-1">{t('common.commodity', 'Commodity')}</label>
             <select
               value={form.commodity}
               onChange={(e) => {
@@ -69,7 +72,7 @@ function CreateListingForm({ commodities, onClose, onCreated }) {
               className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20"
               required
             >
-              <option value="">Select commodity</option>
+              <option value="">{t('common.commodity', 'Select commodity')}</option>
               {commodities.map((c) => (
                 <option key={c._id} value={c._id}>{c.name}</option>
               ))}
@@ -229,8 +232,15 @@ function CreateRequirementForm({ commodities, onClose, onCreated }) {
   );
 }
 
-function ListingCard({ listing, onMatch }) {
-  const gradeColor = listing.qualityGrade === 'A' ? 'bg-forest/15 text-forest' : listing.qualityGrade === 'Organic' ? 'bg-harvest/15 text-harvest' : 'bg-earth text-ink';
+function ListingCard({ listing, currentUser, onMatch }) {
+  const { t } = useTranslation();
+  const gradeColor = listing.qualityGrade === 'A' ? 'bg-forest/15 text-forest' : listing.qualityGrade === 'B' ? 'bg-harvest/15 text-harvest' : 'bg-earth text-ink';
+  
+  const actionLabel = 
+    currentUser?.role === 'farmer' || currentUser?.role === 'seller' ? t('marketplace.findBuyers', 'Find Buyers') :
+    currentUser?.role === 'buyer' ? t('marketplace.findSuppliers', 'Find Suppliers') :
+    t('marketplace.findMatches', 'Find Matches');
+
   return (
     <div className="rounded-mm border border-line bg-white p-5 shadow-card dark:border-night-mute/20 dark:bg-night-card hover:shadow-lg transition-shadow">
       <div className="flex items-start justify-between">
@@ -240,7 +250,7 @@ function ListingCard({ listing, onMatch }) {
           </div>
           <div>
             <div className="font-bold text-ink dark:text-night-text">{listing.commodityName}</div>
-            <div className="text-xs text-mute">Listed by {listing.farmer?.name || 'Farmer'}</div>
+            <div className="text-xs text-mute">{listing.farmer?.name || 'Farmer'}</div>
           </div>
         </div>
         <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${gradeColor}`}>
@@ -263,7 +273,7 @@ function ListingCard({ listing, onMatch }) {
         </div>
         <div className="flex items-center gap-2">
           <Calendar size={14} className="text-mute" />
-          <span>Harvested {new Date(listing.harvestDate).toLocaleDateString()}</span>
+          <span>{new Date(listing.harvestDate).toLocaleDateString()}</span>
         </div>
       </div>
 
@@ -272,18 +282,25 @@ function ListingCard({ listing, onMatch }) {
           {listing.deliveryPreference === 'both' ? 'Pickup or Delivery' : listing.deliveryPreference}
         </span>
         <button
-          onClick={() => onMatch(listing)}
+          onClick={() => onMatch(listing, 'listing')}
           className="rounded-lg bg-forest/10 px-3 py-1.5 text-xs font-bold text-forest hover:bg-forest hover:text-white transition-colors dark:bg-harvest/10 dark:text-harvest dark:hover:bg-harvest"
         >
-          Find Buyers
+          {actionLabel}
         </button>
       </div>
     </div>
   );
 }
 
-function RequirementCard({ requirement, onMatch }) {
+function RequirementCard({ requirement, currentUser, onMatch }) {
+  const { t } = useTranslation();
   const gradeColor = requirement.qualityGrade === 'A' ? 'bg-forest/15 text-forest' : requirement.qualityGrade === 'Any' ? 'bg-info/15 text-info' : 'bg-earth text-ink';
+  
+  const actionLabel = 
+    currentUser?.role === 'farmer' || currentUser?.role === 'seller' ? t('marketplace.findBuyers', 'Find Buyers') :
+    currentUser?.role === 'buyer' ? t('marketplace.findSuppliers', 'Find Suppliers') :
+    t('marketplace.findMatches', 'Find Matches');
+
   return (
     <div className="rounded-mm border border-line bg-white p-5 shadow-card dark:border-night-mute/20 dark:bg-night-card hover:shadow-lg transition-shadow">
       <div className="flex items-start justify-between">
@@ -293,7 +310,7 @@ function RequirementCard({ requirement, onMatch }) {
           </div>
           <div>
             <div className="font-bold text-ink dark:text-night-text">{requirement.commodityName}</div>
-            <div className="text-xs text-mute">Required by {requirement.buyer?.name || 'Buyer'}</div>
+            <div className="text-xs text-mute">{requirement.buyer?.name || 'Buyer'}</div>
           </div>
         </div>
         <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${gradeColor}`}>
@@ -304,7 +321,7 @@ function RequirementCard({ requirement, onMatch }) {
       <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
         <div className="flex items-center gap-2">
           <Weight size={14} className="text-mute" />
-          <span className="tabular font-bold">{requirement.quantityKg} kg needed</span>
+          <span className="tabular font-bold">{requirement.quantityKg} kg</span>
         </div>
         <div className="flex items-center gap-2">
           <IndianRupee size={14} className="text-mute" />
@@ -322,10 +339,10 @@ function RequirementCard({ requirement, onMatch }) {
 
       <div className="mt-3 flex justify-end">
         <button
-          onClick={() => onMatch(requirement)}
+          onClick={() => onMatch(requirement, 'requirement')}
           className="rounded-lg bg-harvest/10 px-3 py-1.5 text-xs font-bold text-harvest hover:bg-harvest hover:text-ink transition-colors"
         >
-          Find Suppliers
+          {actionLabel}
         </button>
       </div>
     </div>
@@ -334,6 +351,8 @@ function RequirementCard({ requirement, onMatch }) {
 
 export default function MarketplacePage() {
   const { user } = useAuth();
+  const { t } = useTranslation();
+  const navigate = useNavigate();
   const [tab, setTab] = useState('listings');
   const [listings, setListings] = useState([]);
   const [requirements, setRequirements] = useState([]);
@@ -376,11 +395,11 @@ export default function MarketplacePage() {
     ? requirements.filter((r) => r.commodityName.toLowerCase() === filterCommodity.toLowerCase())
     : requirements;
 
-  function handleMatch(item) {
-    if (tab === 'listings') {
-      window.location.href = `/matches?listingId=${item._id}`;
+  function handleMatch(item, type) {
+    if (type === 'listing' || tab === 'listings') {
+      navigate(`/matches?listingId=${item._id}`);
     } else {
-      window.location.href = `/matches?requirementId=${item._id}`;
+      navigate(`/matches?requirementId=${item._id}`);
     }
   }
 
@@ -388,8 +407,8 @@ export default function MarketplacePage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Direct Marketplace"
-        title="Farmer–Buyer Marketplace"
-        subtitle="Connect directly with buyers. No intermediaries. AI-powered matching for fair prices."
+        title={t('marketplace.title', 'Farmer–Buyer Marketplace')}
+        subtitle={t('marketplace.subtitle', 'Connect directly with buyers. No intermediaries. AI-powered matching for fair prices.')}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <DataStatusBadge status="SIMULATED" />
@@ -398,7 +417,7 @@ export default function MarketplacePage() {
               onChange={(e) => setFilterCommodity(e.target.value)}
               className="rounded-full border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20"
             >
-              <option value="">All Commodities</option>
+              <option value="">{t('marketplace.allCommodities', 'All Commodities')}</option>
               {commodities.map((c) => (
                 <option key={c._id} value={c.name}>{c.name}</option>
               ))}
@@ -410,10 +429,10 @@ export default function MarketplacePage() {
       {/* Data source */}
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-earth/40 px-4 py-2 text-xs text-mute dark:border-night-mute/20 dark:bg-night-lift/40">
         <div>
-          <span className="font-bold text-ink dark:text-night-text">Data Source:</span> SIMULATED DEMO DATA
+          <span className="font-bold text-ink dark:text-night-text">{t('common.dataSource', 'Data Source')}:</span> {t('badges.simulated', 'SIMULATED DEMO DATA')}
         </div>
         <div>
-          <span className="font-bold text-ink dark:text-night-text">Last Updated:</span> {new Date().toLocaleTimeString()}
+          <span className="font-bold text-ink dark:text-night-text">{t('common.lastUpdated', 'Last Updated')}:</span> {new Date().toLocaleTimeString()}
         </div>
       </div>
 
@@ -426,7 +445,7 @@ export default function MarketplacePage() {
           }`}
         >
           <ShoppingBasket size={14} className="mr-1.5 inline" />
-          Produce Listings ({filteredListings.length})
+          {t('marketplace.produceListings', 'Produce Listings')} ({filteredListings.length})
         </button>
         <button
           onClick={() => setTab('requirements')}
@@ -435,25 +454,25 @@ export default function MarketplacePage() {
           }`}
         >
           <Package size={14} className="mr-1.5 inline" />
-          Buyer Requirements ({filteredRequirements.length})
+          {t('marketplace.buyerRequirements', 'Buyer Requirements')} ({filteredRequirements.length})
         </button>
       </div>
 
       {/* Create button */}
       <div className="flex justify-end">
-        {tab === 'listings' && (user?.role === 'farmer' || user?.role === 'admin') ? (
+        {tab === 'listings' && (user?.role === 'farmer' || user?.role === 'seller' || user?.role === 'admin') ? (
           <button
             onClick={() => setShowCreateListing(true)}
             className="flex items-center gap-2 rounded-lg bg-forest px-4 py-2.5 text-sm font-bold text-white hover:bg-forest-deep transition-colors"
           >
-            <Plus size={16} /> List Produce
+            <Plus size={16} /> {t('marketplace.listProduce', 'List Produce')}
           </button>
-        ) : tab === 'requirements' && (user?.role === 'buyer' || user?.role === 'admin' || user?.role === 'seller') ? (
+        ) : tab === 'requirements' && (user?.role === 'buyer' || user?.role === 'admin') ? (
           <button
             onClick={() => setShowCreateRequirement(true)}
             className="flex items-center gap-2 rounded-lg bg-harvest px-4 py-2.5 text-sm font-bold text-ink hover:bg-harvest/80 transition-colors"
           >
-            <Plus size={16} /> Post Requirement
+            <Plus size={16} /> {t('marketplace.postRequirement', 'Post Requirement')}
           </button>
         ) : null}
       </div>
@@ -463,26 +482,26 @@ export default function MarketplacePage() {
         filteredListings.length === 0 ? (
           <div className="rounded-mm border border-dashed border-line bg-earth/30 p-12 text-center dark:border-night-mute/20 dark:bg-night-lift/30">
             <ShoppingBasket size={32} className="mx-auto text-mute" />
-            <div className="mt-3 text-sm font-medium text-mute">No produce listings found</div>
-            <div className="mt-1 text-xs text-mute">Farmers can list their produce here to find buyers directly.</div>
+            <div className="mt-3 text-sm font-medium text-mute">{t('marketplace.noListings', 'No produce listings found')}</div>
+            <div className="mt-1 text-xs text-mute">{t('marketplace.subtitle', 'Farmers and sellers can list their produce here to find buyers directly.')}</div>
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {filteredListings.map((l) => (
-              <ListingCard key={l._id} listing={l} onMatch={handleMatch} />
+              <ListingCard key={l._id} listing={l} currentUser={user} onMatch={handleMatch} />
             ))}
           </div>
         )
       ) : filteredRequirements.length === 0 ? (
         <div className="rounded-mm border border-dashed border-line bg-earth/30 p-12 text-center dark:border-night-mute/20 dark:bg-night-lift/30">
           <Package size={32} className="mx-auto text-mute" />
-          <div className="mt-3 text-sm font-medium text-mute">No buyer requirements found</div>
-          <div className="mt-1 text-xs text-mute">Buyers can post their requirements here to find farmers directly.</div>
+          <div className="mt-3 text-sm font-medium text-mute">{t('marketplace.noRequirements', 'No buyer requirements found')}</div>
+          <div className="mt-1 text-xs text-mute">{t('marketplace.subtitle', 'Buyers can post their requirements here to find suppliers directly.')}</div>
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filteredRequirements.map((r) => (
-            <RequirementCard key={r._id} requirement={r} onMatch={handleMatch} />
+            <RequirementCard key={r._id} requirement={r} currentUser={user} onMatch={handleMatch} />
           ))}
         </div>
       )}

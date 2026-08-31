@@ -3,8 +3,10 @@ import { api } from '../services/api.js';
 import { AIRecommendationCard } from '../components/AIRecommendationCard.jsx';
 import { WhyRecommendationDrawer } from '../components/WhyRecommendationDrawer.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
+import { useTranslation } from '../i18n/index.jsx';
 
 export default function RecommendationsPage() {
+  const { t } = useTranslation();
   const [data, setData] = useState(null);
   const [why, setWhy] = useState(false);
   useEffect(() => {
@@ -12,7 +14,10 @@ export default function RecommendationsPage() {
   }, []);
   return (
     <div>
-      <PageHeader title="Recommendations" subtitle="Optimisation layer on top of ML forecasts." />
+      <PageHeader
+        title={t('recommendations.title', 'AI Decision Advisory')}
+        subtitle={t('recommendations.subtitle', 'Predictive market recommendations optimized for net farmer revenue and risk hedging.')}
+      />
       <AIRecommendationCard rec={data?.recommendation} onWhy={() => setWhy(true)} />
       <WhyRecommendationDrawer open={why} onClose={() => setWhy(false)} rec={data?.recommendation} />
     </div>

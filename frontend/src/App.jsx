@@ -28,7 +28,8 @@ function Guard({ roles, children }) {
   if (!ready) return <LoadingSkeleton />;
   if (!user) return <Navigate to="/login" replace />;
   if (roles && !roles.includes(user.role)) {
-    if (user.role === 'farmer' || user.role === 'buyer') return <Navigate to="/farmer" replace />;
+    if (user.role === 'farmer') return <Navigate to="/farmer" replace />;
+    if (user.role === 'buyer') return <Navigate to="/marketplace" replace />;
     return <Navigate to="/dashboard" replace />;
   }
   return children;
@@ -38,10 +39,12 @@ export default function App() {
   const { user, ready } = useAuth();
   if (!ready) return <LoadingSkeleton />;
 
+  const defaultRoute = user?.role === 'farmer' ? '/farmer' : user?.role === 'buyer' ? '/marketplace' : '/dashboard';
+
   return (
     <Suspense fallback={<LoadingSkeleton />}>
       <Routes>
-        <Route path="/login" element={user ? <Navigate to={user.role === 'farmer' || user.role === 'buyer' ? '/farmer' : '/dashboard'} /> : <LoginPage />} />
+        <Route path="/login" element={user ? <Navigate to={defaultRoute} replace /> : <LoginPage />} />
         <Route
           element={
             <Guard>
@@ -60,12 +63,12 @@ export default function App() {
           <Route path="/simulator" element={<Guard roles={['seller', 'admin']}><SimulatorPage /></Guard>} />
           <Route path="/map" element={<MapPage />} />
           <Route path="/forecasts" element={<Guard roles={['seller', 'admin']}><ForecastsPage /></Guard>} />
-          <Route path="/farmer" element={<Guard roles={['farmer', 'admin', 'seller', 'buyer']}><FarmerDashboard /></Guard>} />
+          <Route path="/farmer" element={<Guard roles={['farmer', 'admin', 'seller']}><FarmerDashboard /></Guard>} />
           <Route path="/alerts" element={<AlertsPage />} />
           <Route path="/models" element={<Guard roles={['admin', 'seller']}><ModelsPage /></Guard>} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
-        <Route path="*" element={<Navigate to={user ? (user.role === 'farmer' || user.role === 'buyer' ? '/farmer' : '/dashboard') : '/login'} replace />} />
+        <Route path="*" element={<Navigate to={user ? defaultRoute : '/login'} replace />} />
       </Routes>
     </Suspense>
   );

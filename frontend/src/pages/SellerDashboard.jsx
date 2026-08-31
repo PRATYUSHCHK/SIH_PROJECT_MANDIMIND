@@ -11,9 +11,11 @@ import { DataStatusBadge } from '../components/DataStatusBadge.jsx';
 import { ErrorState, LoadingSkeleton } from '../components/States.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useTranslation } from '../i18n/index.jsx';
 
 export default function SellerDashboard() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
   const [why, setWhy] = useState(false);
@@ -47,9 +49,9 @@ export default function SellerDashboard() {
   return (
     <div className="space-y-8">
       <PageHeader
-        eyebrow="Seller desk"
-        title="What should I do today?"
-        subtitle="MandiMind forecasts demand, price and supply, then optimises procurement against spoilage, budget and risk."
+        eyebrow={t('dashboard.sellerDesk', 'SELLER DESK')}
+        title={t('dashboard.whatShouldIDoToday', 'What should I do today?')}
+        subtitle={t('common.tagline', 'MandiMind forecasts demand, price and supply, then optimises procurement against spoilage, budget and risk.')}
         actions={
           <div className="flex items-center gap-2">
             <DataStatusBadge status={data.dataStatus} />
@@ -64,16 +66,18 @@ export default function SellerDashboard() {
         }
       />
       {data.usingSimulatedFallback && (
-        <div className="rounded-mm border border-harvest/40 bg-earth px-4 py-2 text-sm">Using simulated data — ML service was unreachable.</div>
+        <div className="rounded-mm border border-harvest/40 bg-earth px-4 py-2 text-sm">
+          {t('common.simulatedBadge', 'Using simulated data — ML service was unreachable.')}
+        </div>
       )}
       
       {data.sourceInfo && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-earth/40 px-4 py-2 text-xs text-mute dark:border-night-mute/20 dark:bg-night-lift/40">
           <div>
-            <span className="font-bold text-ink dark:text-night-text">Data Source:</span> {data.sourceInfo.source}
+            <span className="font-bold text-ink dark:text-night-text">{t('common.dataSource', 'Data Source')}:</span> {data.sourceInfo.source}
           </div>
           <div>
-            <span className="font-bold text-ink dark:text-night-text">Last Updated:</span> {new Date(data.sourceInfo.lastUpdated).toLocaleTimeString()}
+            <span className="font-bold text-ink dark:text-night-text">{t('common.lastUpdated', 'Last Updated')}:</span> {new Date(data.sourceInfo.lastUpdated).toLocaleTimeString()}
           </div>
           <div className="font-bold text-forest dark:text-harvest">{data.sourceInfo.status}</div>
         </div>
@@ -90,7 +94,7 @@ export default function SellerDashboard() {
             <span className={`rounded-full px-2.5 py-0.5 text-xs font-extrabold uppercase ${
               data.weatherIntelligence.risk === 'HIGH' ? 'bg-warn/20 text-warn' : data.weatherIntelligence.risk === 'MODERATE' ? 'bg-harvest/20 text-harvest' : 'bg-forest/20 text-forest'
             }`}>
-              {data.weatherIntelligence.risk} WEATHER RISK
+              {data.weatherIntelligence.risk} {t('common.risk', 'RISK')}
             </span>
           </div>
 
@@ -100,7 +104,7 @@ export default function SellerDashboard() {
               <div className="mt-0.5 text-2xl font-bold tabular">{data.weatherIntelligence.temperatureC}°C</div>
             </div>
             <div className="rounded-lg bg-earth/50 p-3 dark:bg-night-lift/40">
-              <div className="text-[11px] uppercase text-mute">Rainfall</div>
+              <div className="text-[11px] uppercase text-mute">{t('dashboard.recentRainfall', 'Rainfall')}</div>
               <div className="mt-0.5 text-2xl font-bold tabular">{data.weatherIntelligence.rainfallMm} mm</div>
             </div>
             <div className="rounded-lg bg-earth/50 p-3 dark:bg-night-lift/40">
@@ -124,20 +128,20 @@ export default function SellerDashboard() {
       )}
 
       <section className="grid gap-4 md:grid-cols-3">
-        <MetricCard label="Today’s demand" value={`${data.metrics.todayDemandKg}`} suffix="kg" />
-        <MetricCard label="Predicted demand" value={`${data.metrics.predictedDemandKg}`} suffix="kg" hint={`${data.metrics.demandRange[0]}–${data.metrics.demandRange[1]} kg`} />
-        <MetricCard label="Current price" value={`₹${data.metrics.currentPriceInr}`} suffix="/kg" />
-        <MetricCard label="Predicted price" value={`₹${data.metrics.predictedPriceInr}`} suffix="/kg" hint={`${data.metrics.priceRange[0]}–${data.metrics.priceRange[1]}`} />
-        <MetricCard label="Inventory value" value={`₹${data.metrics.inventoryValueInr.toLocaleString('en-IN')}`} />
-        <MetricCard label="Expected profit" value={`₹${Number(data.metrics.expectedProfitInr).toLocaleString('en-IN')}`} hint="Estimate, not guaranteed" />
+        <MetricCard label={t('dashboard.marketArrivals', 'Today’s demand')} value={`${data.metrics.todayDemandKg}`} suffix="kg" />
+        <MetricCard label={t('dashboard.demandTrend', 'Predicted demand')} value={`${data.metrics.predictedDemandKg}`} suffix="kg" hint={`${data.metrics.demandRange[0]}–${data.metrics.demandRange[1]} kg`} />
+        <MetricCard label={t('common.price', 'Current price')} value={`₹${data.metrics.currentPriceInr}`} suffix="/kg" />
+        <MetricCard label={t('dashboard.priceForecast', 'Predicted price')} value={`₹${data.metrics.predictedPriceInr}`} suffix="/kg" hint={`${data.metrics.priceRange[0]}–${data.metrics.priceRange[1]}`} />
+        <MetricCard label={t('dashboard.activeInventory', 'Inventory value')} value={`₹${data.metrics.inventoryValueInr.toLocaleString('en-IN')}`} />
+        <MetricCard label={t('dashboard.expectedNetProfit', 'Expected profit')} value={`₹${Number(data.metrics.expectedProfitInr).toLocaleString('en-IN')}`} hint="Estimate, not guaranteed" />
       </section>
       <div className="grid gap-6 lg:grid-cols-5">
         <section className="rounded-mm border border-line bg-white p-5 dark:border-night-mute/20 dark:bg-night-card lg:col-span-3">
-          <h3 className="font-bold">Demand forecast</h3>
+          <h3 className="font-bold">{t('dashboard.demandTrend', 'Demand forecast')}</h3>
           <DemandForecastChart historical={data.demandForecast.historical} forecastSeries={data.demandForecast.forecastSeries} anomalies={data.demandForecast.anomalies} />
         </section>
         <section className="rounded-mm border border-line bg-white p-5 dark:border-night-mute/20 dark:bg-night-card lg:col-span-2">
-          <h3 className="font-bold">Price forecast</h3>
+          <h3 className="font-bold">{t('dashboard.priceForecast', 'Price forecast')}</h3>
           <PriceForecastChart
             historical={data.priceForecast.historical}
             current={data.priceForecast.current}
@@ -149,16 +153,16 @@ export default function SellerDashboard() {
       </div>
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-mm border border-line bg-white p-5 dark:bg-night-card">
-          <h3 className="mb-3 font-bold">Inventory health</h3>
+          <h3 className="mb-3 font-bold">{t('dashboard.inventoryHealth', 'Inventory health')}</h3>
           <InventoryHealth items={data.inventoryHealth} />
         </section>
         <section className="rounded-mm border border-line bg-white p-5 dark:bg-night-card">
-          <h3 className="mb-3 font-bold">Supply–demand balance</h3>
+          <h3 className="mb-3 font-bold">{t('dashboard.supplyDemandBalance', 'Supply–demand balance')}</h3>
           <SupplyDemandBalance data={data.supplyDemand} />
         </section>
       </div>
       <section>
-        <h3 className="mb-3 font-bold">Alerts</h3>
+        <h3 className="mb-3 font-bold">{t('nav.alerts', 'Alerts')}</h3>
         <div className="grid gap-3 md:grid-cols-3">
           {data.alerts.map((a) => (
             <AlertCard key={a._id} alert={a} />

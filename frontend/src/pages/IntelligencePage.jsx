@@ -3,8 +3,10 @@ import { api } from '../services/api.js';
 import { MarketComparisonTable } from '../components/MarketComparisonTable.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { useTranslation } from '../i18n/index.jsx';
 
 export default function IntelligencePage() {
+  const { t } = useTranslation();
   const [compare, setCompare] = useState(null);
   const [curve, setCurve] = useState(null);
   const [price, setPrice] = useState(30);
@@ -18,9 +20,12 @@ export default function IntelligencePage() {
 
   return (
     <div className="space-y-8">
-      <PageHeader title="Market intelligence" subtitle="Compare mandis on risk-adjusted outcome, not highest price alone." />
+      <PageHeader
+        title={t('intelligence.title', 'Market Intelligence')}
+        subtitle={t('intelligence.subtitle', 'Real-time mandi arrivals, price elasticity, and historical volatility trends.')}
+      />
       <section className="rounded-mm border border-line bg-white p-5 dark:bg-night-card">
-        <h3 className="mb-2 font-bold">Risk-Adjusted Mandi Net Profit Optimization</h3>
+        <h3 className="mb-2 font-bold">{t('dashboard.mandiComparison', 'Risk-Adjusted Mandi Net Profit Optimization')}</h3>
         <MarketComparisonTable rows={compare?.rows || []} why={compare?.why} recommendedMarket={compare?.recommendedMarket} />
       </section>
       <section className="rounded-mm border border-line bg-white p-5 dark:bg-night-card">

@@ -246,7 +246,7 @@ export const getMyListings = asyncHandler(async (req, res) => {
 export const updateListing = asyncHandler(async (req, res) => {
   const listing = await ProduceListing.findById(req.params.id);
   if (!listing) throw new AppError('Listing not found', 404);
-  if (listing.farmer.toString() !== req.user._id.toString()) {
+  if (listing.farmer.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
     throw new AppError('Not authorized', 403);
   }
   Object.assign(listing, req.body);
@@ -508,29 +508,72 @@ export const getFairPrice = asyncHandler(async (req, res) => {
 // ─── LOGISTICS ────────────────────────────────────────────────────────
 
 export const calculateLogistics = asyncHandler(async (req, res) => {
-  const { listingId, requirementId, quantityKg } = req.query;
-  const listing = await ProduceListing.findById(listingId);
-  if (!listing) throw new AppError('Listing not found', 404);
+  const { transactionId, listingId, requirementId, quantityKg } = req.query;
 
-  let deliveryLat = 17.385;
-  let deliveryLng = 78.487;
+  let pickupLat = 17.385;
+  let pickupLng = 78.487;
+  let pickupLocation = 'Nalgonda';
+
+  let deliveryLat = 17.4;
+  let deliveryLng = 78.5;
   let deliveryLocation = 'Hyderabad';
 
-  if (requirementId) {
-    const reqDoc = await BuyerRequirement.findById(requirementId);
-    if (reqDoc) {
-      deliveryLat = reqDoc.deliveryLat || deliveryLat;
-      deliveryLng = reqDoc.deliveryLng || deliveryLng;
-      deliveryLocation = reqDoc.deliveryLocation || deliveryLocation;
+  let qty = Number(quantityKg) || 100;
+  let commodityName = 'Produce';
+  let transaction = null;
+
+  if (transactionId) {
+    transaction = await Transaction.findById(transactionId)
+      .populate('listing')
+      .populate('requirement')
+      .populate('farmer', 'name location')
+      .populate('buyer', 'name location');
+
+    if (!transaction) throw new AppError('Transaction not found', 404);
+
+    commodityName = transaction.commodityName || 'Produce';
+    qty = transaction.quantityKg;
+
+    if (transaction.listing) {
+      pickupLat = transaction.listing.lat || pickupLat;
+      pickupLng = transaction.listing.lng || pickupLng;
+      pickupLocation = transaction.listing.location || pickupLocation;
+    } else if (transaction.farmer?.location) {
+      pickupLocation = transaction.farmer.location;
+    } else if (transaction.logistics?.pickupLocation) {
+      pickupLocation = transaction.logistics.pickupLocation;
+    }
+
+    if (transaction.requirement) {
+      deliveryLat = transaction.requirement.deliveryLat || deliveryLat;
+      deliveryLng = transaction.requirement.deliveryLng || deliveryLng;
+      deliveryLocation = transaction.requirement.deliveryLocation || deliveryLocation;
+    } else if (transaction.buyer?.location) {
+      deliveryLocation = transaction.buyer.location;
+    } else if (transaction.logistics?.deliveryLocation) {
+      deliveryLocation = transaction.logistics.deliveryLocation;
+    }
+  } else if (listingId) {
+    const listing = await ProduceListing.findById(listingId);
+    if (!listing) throw new AppError('Listing not found', 404);
+
+    commodityName = listing.commodityName;
+    pickupLat = listing.lat || pickupLat;
+    pickupLng = listing.lng || pickupLng;
+    pickupLocation = listing.location || pickupLocation;
+    qty = Number(quantityKg) || listing.quantityKg;
+
+    if (requirementId) {
+      const reqDoc = await BuyerRequirement.findById(requirementId);
+      if (reqDoc) {
+        deliveryLat = reqDoc.deliveryLat || deliveryLat;
+        deliveryLng = reqDoc.deliveryLng || deliveryLng;
+        deliveryLocation = reqDoc.deliveryLocation || deliveryLocation;
+      }
     }
   }
 
-  const pickupLat = listing.lat || 17.385;
-  const pickupLng = listing.lng || 78.487;
-  const pickupLocation = listing.location;
-
   const distanceKm = Number(haversineKm(pickupLat, pickupLng, deliveryLat, deliveryLng).toFixed(1));
-  const qty = Number(quantityKg) || listing.quantityKg;
   const transportCost = calcTransportCost(distanceKm, qty);
   const transportCostPerKg = qty > 0 ? Number((transportCost / qty).toFixed(2)) : 0;
   const etaMin = calcETA(distanceKm);
@@ -538,7 +581,7 @@ export const calculateLogistics = asyncHandler(async (req, res) => {
   // Route comparison (simulated)
   const routes = [
     {
-      name: 'Route A — Direct',
+      name: 'Route A — Direct Highway',
       distanceKm,
       transportCostInr: transportCost,
       etaMin,
@@ -546,7 +589,7 @@ export const calculateLogistics = asyncHandler(async (req, res) => {
       saving: 0,
     },
     {
-      name: 'Route B — Highway',
+      name: 'Route B — Express Corridor',
       distanceKm: Number((distanceKm * 1.15).toFixed(1)),
       transportCostInr: Number((transportCost * 1.08).toFixed(2)),
       etaMin: Math.round(etaMin * 0.85),
@@ -554,7 +597,7 @@ export const calculateLogistics = asyncHandler(async (req, res) => {
       saving: 0,
     },
     {
-      name: 'Route C — Rural roads',
+      name: 'Route C — Regional State Highway',
       distanceKm: Number((distanceKm * 0.92).toFixed(1)),
       transportCostInr: Number((transportCost * 0.88).toFixed(2)),
       etaMin: Math.round(etaMin * 1.25),
@@ -579,6 +622,8 @@ export const calculateLogistics = asyncHandler(async (req, res) => {
     dataStatus: 'SIMULATED',
     badge: dataBadge(),
     logistics: {
+      transactionId: transaction?._id,
+      commodityName,
       pickup: { location: pickupLocation, lat: pickupLat, lng: pickupLng },
       delivery: { location: deliveryLocation, lat: deliveryLat, lng: deliveryLng },
       quantityKg: qty,
@@ -599,14 +644,25 @@ export const createOffer = asyncHandler(async (req, res) => {
   const listing = await ProduceListing.findById(listingId);
   if (!listing) throw new AppError('Listing not found', 404);
 
-  const qty = Math.min(Number(quantityKg), listing.availableQuantityKg);
+  const requirement = requirementId ? await BuyerRequirement.findById(requirementId) : null;
+  const isSupplySide = req.user.role === 'farmer' || req.user.role === 'seller';
+
+  const buyerId = isSupplySide ? (requirement?.buyer || req.body.buyerId) : req.user._id;
+  const farmerId = isSupplySide ? req.user._id : listing.farmer;
+
+  if (!buyerId) throw new AppError('Buyer could not be determined for this offer', 400);
+  if (!farmerId) throw new AppError('Supplier could not be determined for this offer', 400);
+
+  const available = listing.availableQuantityKg != null ? listing.availableQuantityKg : listing.quantityKg;
+  const qty = Math.min(Number(quantityKg), available);
   if (qty <= 0) throw new AppError('Insufficient available quantity', 400);
 
   const offer = await Offer.create({
     listing: listingId,
     requirement: requirementId || undefined,
-    buyer: req.user._id,
-    farmer: listing.farmer,
+    buyer: buyerId,
+    farmer: farmerId,
+    createdBy: req.user._id,
     priceInr: Number(priceInr),
     quantityKg: qty,
     totalValueInr: Number((Number(priceInr) * qty).toFixed(2)),
@@ -622,8 +678,8 @@ export const createOffer = asyncHandler(async (req, res) => {
     listing: listingId,
     requirement: requirementId || undefined,
     offer: offer._id,
-    farmer: listing.farmer,
-    buyer: req.user._id,
+    farmer: farmerId,
+    buyer: buyerId,
     commodity: listing.commodity,
     commodityName: listing.commodityName,
     quantityKg: qty,
@@ -663,22 +719,45 @@ async function computeLogisticsData(listing, deliveryLat, deliveryLng) {
 export const acceptOffer = asyncHandler(async (req, res) => {
   const offer = await Offer.findById(req.params.id);
   if (!offer) throw new AppError('Offer not found', 404);
-  if (offer.farmer.toString() !== req.user._id.toString()) throw new AppError('Not authorized', 403);
+
+  const isSender = offer.createdBy && offer.createdBy.toString() === req.user._id.toString();
+  const isFarmer = offer.farmer && offer.farmer.toString() === req.user._id.toString();
+  const isBuyer = offer.buyer && offer.buyer.toString() === req.user._id.toString();
+  const isAdmin = req.user.role === 'admin';
+
+  let authorized = false;
+  if (isAdmin) {
+    authorized = true;
+  } else if (offer.createdBy) {
+    if (!isSender && (isFarmer || isBuyer)) {
+      authorized = true;
+    }
+  } else {
+    // Default fallback if createdBy is unset: recipient is farmer/seller
+    if (isFarmer || isBuyer) {
+      authorized = true;
+    }
+  }
+
+  if (!authorized) throw new AppError('Not authorized to accept this offer', 403);
   if (offer.status !== 'pending') throw new AppError('Offer is no longer pending', 400);
 
   offer.status = 'accepted';
   await offer.save();
 
-  // Update listing
+  // Update listing available quantity
   const listing = await ProduceListing.findById(offer.listing);
   if (listing) {
-    listing.availableQuantityKg = Math.max(0, listing.availableQuantityKg - offer.quantityKg);
+    listing.availableQuantityKg = Math.max(0, (listing.availableQuantityKg != null ? listing.availableQuantityKg : listing.quantityKg) - offer.quantityKg);
     if (listing.availableQuantityKg <= 0) listing.status = 'matched';
     await listing.save();
   }
 
-  // Update transaction
-  const transaction = await Transaction.findOne({ listing: offer.listing, buyer: offer.buyer, status: 'offer_pending' });
+  // Update transaction: find by offer._id first, or fallback to listing query
+  let transaction = await Transaction.findOne({ offer: offer._id });
+  if (!transaction) {
+    transaction = await Transaction.findOne({ listing: offer.listing, status: 'offer_pending' });
+  }
   if (transaction) {
     transaction.status = 'accepted';
     transaction.agreedPriceInr = offer.priceInr;
@@ -686,7 +765,7 @@ export const acceptOffer = asyncHandler(async (req, res) => {
     await transaction.save();
   }
 
-  // Reserve inventory if farmer has inventory for this commodity
+  // Reserve inventory if supplier has inventory for this commodity
   const inventory = await Inventory.findOne({ seller: offer.farmer, commodity: listing?.commodity });
   if (inventory) {
     inventory.quantityKg = Math.max(0, inventory.quantityKg - offer.quantityKg);
@@ -699,19 +778,42 @@ export const acceptOffer = asyncHandler(async (req, res) => {
 export const rejectOffer = asyncHandler(async (req, res) => {
   const offer = await Offer.findById(req.params.id);
   if (!offer) throw new AppError('Offer not found', 404);
-  if (offer.farmer.toString() !== req.user._id.toString()) throw new AppError('Not authorized', 403);
+
+  const isSender = offer.createdBy && offer.createdBy.toString() === req.user._id.toString();
+  const isFarmer = offer.farmer && offer.farmer.toString() === req.user._id.toString();
+  const isBuyer = offer.buyer && offer.buyer.toString() === req.user._id.toString();
+  const isAdmin = req.user.role === 'admin';
+
+  let authorized = false;
+  if (isAdmin) {
+    authorized = true;
+  } else if (offer.createdBy) {
+    if (!isSender && (isFarmer || isBuyer)) {
+      authorized = true;
+    }
+  } else {
+    if (isFarmer || isBuyer) {
+      authorized = true;
+    }
+  }
+
+  if (!authorized) throw new AppError('Not authorized to reject this offer', 403);
+  if (offer.status !== 'pending') throw new AppError('Offer is no longer pending', 400);
 
   offer.status = 'rejected';
   await offer.save();
 
-  // Update transaction
-  const transaction = await Transaction.findOne({ listing: offer.listing, buyer: offer.buyer, status: 'offer_pending' });
+  // Update transaction: find by offer._id first, or fallback to listing query
+  let transaction = await Transaction.findOne({ offer: offer._id });
+  if (!transaction) {
+    transaction = await Transaction.findOne({ listing: offer.listing, status: 'offer_pending' });
+  }
   if (transaction) {
     transaction.status = 'rejected';
     await transaction.save();
   }
 
-  res.json({ dataStatus: 'SIMULATED', offer });
+  res.json({ dataStatus: 'SIMULATED', offer, transaction });
 });
 
 export const getMyTransactions = asyncHandler(async (req, res) => {
@@ -739,8 +841,43 @@ export const updateTransactionStatus = asyncHandler(async (req, res) => {
   const transaction = await Transaction.findById(req.params.id);
   if (!transaction) throw new AppError('Transaction not found', 404);
 
-  const allowed = ['logistics_planned', 'in_transit', 'delivered', 'completed', 'cancelled'];
+  const isFarmer = transaction.farmer && transaction.farmer.toString() === req.user._id.toString();
+  const isBuyer = transaction.buyer && transaction.buyer.toString() === req.user._id.toString();
+  const isAdmin = req.user.role === 'admin';
+
+  if (!isFarmer && !isBuyer && !isAdmin) {
+    throw new AppError('Not authorized to update this transaction', 403);
+  }
+
+  const allowed = ['accepted', 'logistics_planned', 'in_transit', 'delivered', 'completed', 'rejected', 'cancelled'];
   if (!allowed.includes(status)) throw new AppError('Invalid status transition', 400);
+
+  // If accepting or rejecting directly via transaction status update
+  if (status === 'accepted' || status === 'rejected') {
+    if (transaction.status !== 'offer_pending') {
+      throw new AppError('Can only accept or reject when offer is pending', 400);
+    }
+    let offer = null;
+    if (transaction.offer) {
+      offer = await Offer.findById(transaction.offer);
+    }
+    const isSender = offer?.createdBy && offer.createdBy.toString() === req.user._id.toString();
+    if (isSender && !isAdmin) {
+      throw new AppError('Cannot accept or reject your own offer', 403);
+    }
+    if (offer) {
+      offer.status = status;
+      await offer.save();
+    }
+    if (status === 'accepted') {
+      const listing = await ProduceListing.findById(transaction.listing);
+      if (listing) {
+        listing.availableQuantityKg = Math.max(0, (listing.availableQuantityKg != null ? listing.availableQuantityKg : listing.quantityKg) - transaction.quantityKg);
+        if (listing.availableQuantityKg <= 0) listing.status = 'matched';
+        await listing.save();
+      }
+    }
+  }
 
   transaction.status = status;
   if (status === 'completed') {
@@ -751,15 +888,66 @@ export const updateTransactionStatus = asyncHandler(async (req, res) => {
   res.json({ dataStatus: 'SIMULATED', transaction });
 });
 
+export const payTransaction = asyncHandler(async (req, res) => {
+  const { paymentMethod, simulateFailure } = req.body;
+  const transaction = await Transaction.findById(req.params.id)
+    .populate('farmer', 'name location email avatarInitials')
+    .populate('buyer', 'name location email avatarInitials')
+    .populate('listing')
+    .populate('requirement');
+
+  if (!transaction) throw new AppError('Transaction not found', 404);
+
+  const isBuyer =
+    (transaction.buyer?._id && transaction.buyer._id.toString() === req.user._id.toString()) ||
+    transaction.buyer?.toString() === req.user._id.toString();
+  const isAdmin = req.user.role === 'admin';
+
+  if (!isBuyer && !isAdmin) {
+    throw new AppError('Only the buyer or admin can initiate payment for this transaction', 403);
+  }
+
+  if (transaction.paymentStatus === 'paid') {
+    throw new AppError('This transaction has already been settled and paid', 400);
+  }
+
+  if (simulateFailure) {
+    transaction.paymentStatus = 'failed';
+    await transaction.save();
+    return res.status(400).json({
+      dataStatus: 'SIMULATED',
+      error: 'Simulated payment failure: Demo bank gateway timeout or network error.',
+      transaction,
+    });
+  }
+
+  const paymentId = `SIM-PAY-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+  transaction.paymentStatus = 'paid';
+  transaction.paymentMethod = paymentMethod || 'UPI';
+  transaction.paymentId = paymentId;
+  transaction.paidAt = new Date();
+  transaction.status = 'completed';
+  transaction.completedAt = new Date();
+  await transaction.save();
+
+  res.json({
+    dataStatus: 'SIMULATED',
+    message: 'Payment completed successfully (SIMULATED DEMO)',
+    paymentId,
+    transaction,
+  });
+});
+
 // ─── TRADE OPPORTUNITY (combined endpoint) ────────────────────────────
 
 export const getTradeOpportunities = asyncHandler(async (req, res) => {
   const role = req.user.role;
   const opportunities = [];
 
-  if (role === 'farmer' || role === 'seller') {
-    // Find requirements matching farmer's inventory/listings
-    const listings = await ProduceListing.find({ farmer: req.user._id, status: 'active' });
+  if (role === 'farmer' || role === 'seller' || role === 'admin') {
+    // Find requirements matching farmer's/seller's inventory/listings (or all active listings if admin)
+    const listFilter = role === 'admin' ? { status: 'active' } : { farmer: req.user._id, status: 'active' };
+    const listings = await ProduceListing.find(listFilter);
     const requirements = await BuyerRequirement.find({ status: { $in: ['active', 'partially_fulfilled'] } })
       .populate('buyer', 'name location avatarInitials');
 
@@ -793,8 +981,9 @@ export const getTradeOpportunities = asyncHandler(async (req, res) => {
   }
 
   if (role === 'buyer' || role === 'admin') {
-    // Find listings matching buyer's requirements
-    const requirements = await BuyerRequirement.find({ buyer: req.user._id, status: 'active' });
+    // Find listings matching buyer's requirements (or all active requirements if admin)
+    const reqFilter = role === 'admin' ? { status: 'active' } : { buyer: req.user._id, status: 'active' };
+    const requirements = await BuyerRequirement.find(reqFilter);
     const listings = await ProduceListing.find({ status: 'active' })
       .populate('farmer', 'name location avatarInitials');
 
@@ -807,7 +996,7 @@ export const getTradeOpportunities = asyncHandler(async (req, res) => {
         }
       }
       matched.sort((a, b) => b.score - a.score);
-      const totalAvailable = matched.reduce((s, m) => s + m.listing.availableQuantityKg, 0);
+      const totalAvailable = matched.reduce((s, m) => s + (m.listing.availableQuantityKg || m.listing.quantityKg), 0);
 
       if (matched.length > 0) {
         const fairPriceInfo = await computeAIFairPrice(req.commodity, 'A', req.deliveryLocation, req.quantityKg);

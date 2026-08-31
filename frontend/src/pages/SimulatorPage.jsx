@@ -4,9 +4,11 @@ import { PageHeader } from '../components/PageHeader.jsx';
 import { WhatIfControl, SimulationResult } from '../components/simulator/WhatIf.jsx';
 import { DataStatusBadge } from '../components/DataStatusBadge.jsx';
 import { useToast } from '../context/ToastContext.jsx';
+import { useTranslation } from '../i18n/index.jsx';
 
 export default function SimulatorPage() {
   const toast = useToast();
+  const { t } = useTranslation();
   const [inputs, setInputs] = useState({
     price: 30,
     rainfallMm: 8,
@@ -26,7 +28,7 @@ export default function SimulatorPage() {
   const body = useMemo(() => inputs, [inputs]);
 
   useEffect(() => {
-    const t = setTimeout(async () => {
+    const tTimer = setTimeout(async () => {
       try {
         const { data } = await api.post('/simulate', body);
         setResult(data);
@@ -35,7 +37,7 @@ export default function SimulatorPage() {
         setErr(e.response?.data?.error || 'Simulator requires the ML service.');
       }
     }, 280);
-    return () => clearTimeout(t);
+    return () => clearTimeout(tTimer);
   }, [body]);
 
   useEffect(() => {
@@ -45,8 +47,8 @@ export default function SimulatorPage() {
   return (
     <div>
       <PageHeader
-        title="What-if simulator"
-        subtitle="A decision laboratory. BASELINE vs SIMULATED. Rainfall +30% and arrivals +40% are the demo story."
+        title={t('simulator.title', 'What-If Market Simulator')}
+        subtitle={t('simulator.subtitle', 'Simulate rainfall shocks, transportation fuel spikes, and supply surges on mandi prices.')}
         actions={<DataStatusBadge status="SIMULATED" />}
       />
       {err && <div className="mb-4 rounded-mm border border-alert/30 p-3 text-sm">{err}</div>}

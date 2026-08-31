@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { Logo } from '../components/Logo.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
+import { useTranslation } from '../i18n/index.jsx';
 
 export default function LoginPage() {
   const { login, demo } = useAuth();
+  const { t } = useTranslation();
   const toast = useToast();
   const navigate = useNavigate();
   const [email, setEmail] = useState('seller@mandimind.demo');
@@ -13,7 +15,8 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
 
   async function go(user) {
-    if (user.role === 'farmer' || user.role === 'buyer') navigate('/farmer');
+    if (user.role === 'farmer') navigate('/farmer');
+    else if (user.role === 'buyer') navigate('/marketplace');
     else navigate('/dashboard');
   }
 
@@ -24,7 +27,7 @@ export default function LoginPage() {
       const user = await login(email, password);
       await go(user);
     } catch {
-      toast.push('Could not sign in. Check credentials and that the API is running.');
+      toast.push(t('auth.invalidCreds', 'Could not sign in. Check credentials and that the API is running.'));
     } finally {
       setBusy(false);
     }
@@ -36,7 +39,7 @@ export default function LoginPage() {
       const user = await demo(role);
       await go(user);
     } catch {
-      toast.push('Demo login failed. Seed the database and start the API.');
+      toast.push(t('auth.invalidCreds', 'Demo login failed. Seed the database and start the API.'));
     } finally {
       setBusy(false);
     }
@@ -55,39 +58,39 @@ export default function LoginPage() {
             <circle cx="420" cy="36" r="18" fill="#2563EB" opacity="0.35" />
           </svg>
         </div>
-        <p className="text-xs text-white/50">SIMULATED DEMO DATA — not a live government feed.</p>
+        <p className="text-xs text-white/50">{t('badges.simulated', 'SIMULATED DEMO DATA — not a live government feed.')}</p>
       </section>
       <section className="flex items-center justify-center bg-canvas p-6">
         <form onSubmit={onSubmit} className="w-full max-w-md rounded-[18px] border border-line bg-white p-8 shadow-card">
           <div className="lg:hidden">
             <Logo />
           </div>
-          <h2 className="mt-4 text-2xl font-extrabold">Sign in</h2>
-          <p className="mt-1 text-sm text-mute">Role-aware access for seller, farmer and analyst.</p>
+          <h2 className="mt-4 text-2xl font-extrabold">{t('auth.signIn', 'Sign in')}</h2>
+          <p className="mt-1 text-sm text-mute">{t('auth.signInSubtitle', 'Access AI pricing, predictive mandi forecasts, and direct trading.')}</p>
           <label className="mt-6 block text-sm">
-            Email
+            {t('auth.email', 'Email')}
             <input className="mt-1 w-full rounded-xl border border-line px-3 py-2" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
           </label>
           <label className="mt-4 block text-sm">
-            Password
+            {t('auth.password', 'Password')}
             <input className="mt-1 w-full rounded-xl border border-line px-3 py-2" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </label>
           <div className="mt-3 flex items-center justify-between text-sm">
             <label className="flex items-center gap-2">
-              <input type="checkbox" defaultChecked /> Remember me
+              <input type="checkbox" defaultChecked /> {t('auth.rememberMe', 'Remember me')}
             </label>
             <button type="button" className="text-forest" onClick={() => toast.push('Password reset is not enabled in the demo.')}>
-              Forgot password
+              {t('auth.forgotPassword', 'Forgot password')}
             </button>
           </div>
           <button disabled={busy} className="mt-6 w-full rounded-full bg-forest py-2.5 font-semibold text-white">
-            {busy ? 'Signing in…' : 'Continue'}
+            {busy ? t('common.loading', 'Signing in…') : t('auth.continue', 'Continue')}
           </button>
-          <div className="mt-6 text-xs font-semibold uppercase tracking-wide text-mute">Demo login</div>
+          <div className="mt-6 text-xs font-semibold uppercase tracking-wide text-mute">{t('auth.quickDemo', 'Demo login')}</div>
           <div className="mt-2 grid grid-cols-2 gap-2">
             {['seller', 'farmer', 'buyer', 'admin'].map((role) => (
               <button type="button" key={role} onClick={() => onDemo(role)} className="rounded-full border border-line py-2 text-sm capitalize">
-                {role}
+                {t(`auth.${role}Demo`, role)}
               </button>
             ))}
           </div>

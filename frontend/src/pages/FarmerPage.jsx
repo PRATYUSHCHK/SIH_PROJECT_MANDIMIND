@@ -3,12 +3,12 @@ import { api } from '../services/api.js';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { RiskBadge } from '../components/RiskBadge.jsx';
 import { ConfidenceIndicator } from '../components/ConfidenceIndicator.jsx';
-import { t } from '../i18n/index.js';
+import { useTranslation } from '../i18n/index.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function FarmerPage() {
   const { user } = useAuth();
-  const lang = user?.language || 'en';
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     location: 'Nalgonda',
     landSizeAcres: 3.5,
@@ -34,7 +34,10 @@ export default function FarmerPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Farmer mode" subtitle="Rank crop opportunities using expected demand, cost, water and market risk. Never guaranteed profit." />
+      <PageHeader
+        title={t('farmer.title', 'Farmer Mode & Crop Planner')}
+        subtitle={t('farmer.subtitle', 'Personalized crop advisory, sowing schedule, and direct buyer demand matching.')}
+      />
       <form onSubmit={rank} className="grid gap-3 rounded-mm border border-line bg-white p-5 dark:bg-night-card md:grid-cols-2">
         {['location', 'soilType', 'season'].map((k) => (
           <label key={k} className="text-sm">
@@ -77,15 +80,15 @@ export default function FarmerPage() {
               </div>
               <div className="mt-4 grid gap-4 sm:grid-cols-4">
                 <div>
-                  <div className="text-[11px] uppercase text-mute">{t(lang, 'estimatedReturn')}</div>
+                  <div className="text-[11px] uppercase text-mute">{t('dashboard.expectedNetProfit', 'Estimated Return')}</div>
                   <div className="tabular text-2xl font-bold">₹{r.estimatedReturnInr.toLocaleString('en-IN')}</div>
                 </div>
                 <div>
-                  <div className="text-[11px] uppercase text-mute">Expected cost</div>
+                  <div className="text-[11px] uppercase text-mute">{t('transactions.transportCost', 'Expected cost')}</div>
                   <div className="tabular text-xl font-bold">₹{r.expectedCostInr.toLocaleString('en-IN')}</div>
                 </div>
                 <div>
-                  <div className="text-[11px] uppercase text-mute">Expected revenue</div>
+                  <div className="text-[11px] uppercase text-mute">{t('common.revenue', 'Expected revenue')}</div>
                   <div className="tabular text-xl font-bold">₹{r.expectedRevenueInr.toLocaleString('en-IN')}</div>
                 </div>
                 <ConfidenceIndicator value={r.confidence} />
