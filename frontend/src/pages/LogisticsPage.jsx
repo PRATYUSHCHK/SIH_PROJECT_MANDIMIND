@@ -61,7 +61,7 @@ export default function LogisticsPage() {
         await calculateRouteForTx(targetId);
       }
     } catch (e) {
-      setErr(e.response?.data?.error || e.message);
+      setErr(e.response?.data?.message || e.response?.data?.error || e.message);
     }
     setLoading(false);
   }
@@ -71,12 +71,12 @@ export default function LogisticsPage() {
     setCalculating(true);
     setErr('');
     try {
-      const { data } = await api.get('/marketplace/logistics/calculate', {
+      const { data } = await api.get('/marketplace/logistics', {
         params: { transactionId: txId },
       });
-      setLogistics(data);
+      setLogistics(data.logistics || data);
     } catch (e) {
-      setErr(e.response?.data?.error || e.message);
+      setErr(e.response?.data?.message || e.response?.data?.error || e.message);
     }
     setCalculating(false);
   }
@@ -94,7 +94,7 @@ export default function LogisticsPage() {
       await api.patch(`/marketplace/transactions/${selectedTxId}/status`, { status: newStatus });
       await loadData();
     } catch (e) {
-      alert(e.response?.data?.error || 'Failed to update status');
+      alert(e.response?.data?.message || e.response?.data?.error || 'Failed to update status');
     }
     setAdvancing(false);
   }

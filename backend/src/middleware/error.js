@@ -10,6 +10,7 @@ export function errorHandler(err, req, res, next) {
   const status = err.status || 500;
   const payload = {
     error: err.message || 'Unexpected error',
+    message: err.message || 'Unexpected error',
     code: err.code || 'INTERNAL',
     dataStatus: 'SYSTEM',
   };
