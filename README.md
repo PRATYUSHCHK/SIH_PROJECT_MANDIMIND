@@ -23,7 +23,7 @@ All seeded prices, arrivals, weather, and inventory in this repository are **SIM
 docker compose up --build
 ```
 
-- App: http://localhost:5173
+- App: https://sih-project-mandimind.vercel.app/
 - API: http://localhost:5000/api/health
 - ML: http://localhost:8000/health
 
