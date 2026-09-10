@@ -6,6 +6,7 @@ import { PageHeader } from '../components/PageHeader.jsx';
 import { DataStatusBadge } from '../components/DataStatusBadge.jsx';
 import { ErrorState, LoadingSkeleton } from '../components/States.jsx';
 import { ConfidenceIndicator } from '../components/ConfidenceIndicator.jsx';
+import { SupplyPoolCard } from '../components/SupplyPoolCard.jsx';
 import {
   TrendingUp,
   MapPin,
@@ -17,65 +18,181 @@ import {
   Target,
   Sparkles,
   Package,
+  Thermometer,
+  ShieldCheck,
+  AlertTriangle,
+  Users,
+  Check,
+  Scale,
 } from 'lucide-react';
+
+function TradeComparisonWidget() {
+  const { t } = useTranslation();
+  return (
+    <div className="rounded-2xl border border-forest/30 bg-gradient-to-br from-white via-forest/[0.02] to-forest/[0.06] p-6 shadow-card dark:border-harvest/30 dark:bg-night-card space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line/60 pb-3 dark:border-night-mute/30">
+        <div className="flex items-center gap-2">
+          <div className="grid h-8 w-8 place-items-center rounded-lg bg-forest/15 text-forest dark:bg-harvest/20 dark:text-harvest">
+            <Scale size={18} />
+          </div>
+          <div>
+            <h3 className="font-bold text-base text-ink dark:text-night-text">
+              {t('dashboard.netRealizationDemo', 'AI Trade Intelligence: Why Gross Price Can Be Misleading')}
+            </h3>
+            <p className="text-xs text-mute">Comparing high-price distant buyer vs optimal nearby direct buyer</p>
+          </div>
+        </div>
+        <DataStatusBadge status="SIMULATED" />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {/* Option A: Distant Buyer (Seemingly High Price) */}
+        <div className="rounded-xl border border-alert/30 bg-alert/[0.03] p-4 space-y-3 dark:border-alert/20">
+          <div className="flex items-center justify-between">
+            <span className="rounded-full bg-alert/15 px-2.5 py-0.5 text-[10px] font-bold text-alert uppercase">
+              OPTION A — DISTANT BUYER
+            </span>
+            <span className="text-xs font-bold text-alert">⚠️ Low Net Yield</span>
+          </div>
+
+          <div>
+            <div className="text-sm font-bold text-ink dark:text-night-text">Delhi Wholesale Market (1,500 km)</div>
+            <div className="text-xs text-mute">Gross Offer: <strong className="text-ink dark:text-night-text">₹36.00/kg</strong> (Seemingly High)</div>
+          </div>
+
+          <div className="space-y-1 text-xs text-mute border-t border-line/60 pt-2">
+            <div className="flex justify-between">
+              <span>Freight / Logistics (1500 km):</span>
+              <span className="text-alert tabular">− ₹8.50/kg</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Expected Transit Spoilage (15%):</span>
+              <span className="text-alert tabular">− ₹5.40/kg</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Packaging & Handling:</span>
+              <span className="text-alert tabular">− ₹1.10/kg</span>
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-alert/10 p-3 text-xs flex justify-between items-center font-bold">
+            <span className="text-alert">Farmer Net Realization:</span>
+            <span className="text-base font-extrabold tabular text-alert">₹21.00/kg</span>
+          </div>
+        </div>
+
+        {/* Option B: Local Direct Buyer (Recommended) */}
+        <div className="rounded-xl border-2 border-forest/40 bg-forest/[0.05] p-4 space-y-3 dark:border-harvest/40 dark:bg-harvest/[0.05]">
+          <div className="flex items-center justify-between">
+            <span className="rounded-full bg-forest text-white px-2.5 py-0.5 text-[10px] font-bold uppercase dark:bg-harvest dark:text-ink">
+              OPTION B — LOCAL DIRECT BUYER
+            </span>
+            <span className="text-xs font-bold text-forest dark:text-harvest flex items-center gap-1">
+              <Check size={14} /> BEST NET RETURN
+            </span>
+          </div>
+
+          <div>
+            <div className="text-sm font-bold text-ink dark:text-night-text">Hyderabad Fresh Supermarkets (95 km)</div>
+            <div className="text-xs text-mute">Gross Offer: <strong className="text-ink dark:text-night-text">₹30.00/kg</strong> (Market Rate)</div>
+          </div>
+
+          <div className="space-y-1 text-xs text-mute border-t border-line/60 pt-2">
+            <div className="flex justify-between">
+              <span>Freight / Direct Transport (95 km):</span>
+              <span className="text-forest dark:text-harvest tabular">− ₹1.80/kg</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Expected Transit Spoilage (2%):</span>
+              <span className="text-forest dark:text-harvest tabular">− ₹0.60/kg</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Packaging & Handling:</span>
+              <span className="text-forest dark:text-harvest tabular">− ₹0.80/kg</span>
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-forest/15 p-3 text-xs flex justify-between items-center font-bold dark:bg-harvest/15">
+            <span className="text-forest dark:text-harvest">Farmer Net Realization:</span>
+            <span className="text-lg font-extrabold tabular text-forest dark:text-harvest">₹26.80/kg (+27.6%)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function OpportunityCard({ opp, type }) {
   const { t } = useTranslation();
 
   if (type === 'SELL') {
+    const isRecommended = opp.isRecommended !== false;
+    const spoilageRisk = opp.spoilageRiskScore || 'LOW';
+
     return (
-      <div className="relative overflow-hidden rounded-[18px] border border-forest/20 bg-white p-6 shadow-card dark:border-harvest/20 dark:bg-night-card">
-        <div className="absolute left-0 top-0 h-full w-1.5 bg-forest" />
-        <div className="flex items-center gap-2">
-          <span className="flex h-2.5 w-2.5 rounded-full bg-forest animate-pulse" />
-          <span className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-forest dark:text-harvest">
-            {t('dashboard.todayDecision', "Today's AI Opportunity")} — {t('common.actions', 'SELL')}
-          </span>
+      <div className={`relative overflow-hidden rounded-[18px] border bg-white p-6 shadow-card dark:bg-night-card ${
+        isRecommended ? 'border-forest/20 dark:border-harvest/20' : 'border-alert/40'
+      }`}>
+        <div className={`absolute left-0 top-0 h-full w-1.5 ${isRecommended ? 'bg-forest' : 'bg-alert'}`} />
+        
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className={`flex h-2.5 w-2.5 rounded-full ${isRecommended ? 'bg-forest animate-pulse' : 'bg-alert'}`} />
+            <span className={`text-[11px] font-extrabold uppercase tracking-[0.18em] ${isRecommended ? 'text-forest dark:text-harvest' : 'text-alert'}`}>
+              {t('dashboard.todayDecision', "Today's AI Direct Trade")} — {isRecommended ? 'RECOMMENDED BUYER' : 'LOW NET REALIZATION'}
+            </span>
+          </div>
           <DataStatusBadge status="AI_FORECAST" />
         </div>
 
         <h3 className="mt-3 text-2xl font-extrabold tracking-tight text-forest-ink dark:text-night-text">
-          {t('dashboard.sellTemplate', { quantity: `${opp.listing?.quantityKg || 0} KG`, commodity: opp.listing?.commodityName?.toUpperCase() || 'PRODUCE' })}
+          {opp.listing?.quantityKg || 500} KG {opp.listing?.commodityName?.toUpperCase() || 'PRODUCE'} → {opp.requirement?.buyer?.name || 'Buyer'}
         </h3>
 
-        <div className="mt-4 grid gap-4 rounded-xl bg-earth/60 p-4 dark:bg-night-lift/50 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 grid gap-4 rounded-xl bg-earth/60 p-4 dark:bg-night-lift/50 sm:grid-cols-2 lg:grid-cols-4 text-xs">
           <div>
-            <div className="text-[11px] uppercase tracking-wider text-mute">{t('auth.buyerDemo', 'Buyer')}</div>
-            <div className="mt-0.5 font-bold text-ink dark:text-night-text">{opp.requirement?.buyer?.name || 'Buyer'}</div>
+            <div className="text-[11px] uppercase tracking-wider text-mute">Buyer Location & Type</div>
+            <div className="mt-0.5 font-bold text-ink dark:text-night-text">
+              {opp.requirement?.deliveryLocation} ({opp.distanceKm || 95} km)
+            </div>
           </div>
           <div>
-            <div className="text-[11px] uppercase tracking-wider text-mute">{t('matches.offeredPrice', 'Buyer Offer')}</div>
-            <div className="mt-0.5 font-bold tabular text-ink dark:text-night-text">₹{opp.requirement?.maximumPriceInr}/kg</div>
+            <div className="text-[11px] uppercase tracking-wider text-mute">Gross Buyer Offer</div>
+            <div className="mt-0.5 font-bold tabular text-ink dark:text-night-text">₹{opp.buyerOffer || opp.fairPrice}/kg</div>
           </div>
           <div>
-            <div className="text-[11px] uppercase tracking-wider text-mute">{t('matches.aiFairPrice', 'AI Fair Price')}</div>
-            <div className="mt-0.5 font-bold tabular text-forest dark:text-harvest">₹{opp.fairPrice}/kg</div>
-          </div>
-          <div>
-            <div className="text-[11px] uppercase tracking-wider text-mute">{t('transactions.transportCost', 'Est. Transport')}</div>
+            <div className="text-[11px] uppercase tracking-wider text-mute">Logistics Cost</div>
             <div className="mt-0.5 font-bold tabular text-ink dark:text-night-text">₹{opp.transportCostPerKg}/kg</div>
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-mute">Transit Spoilage Risk</div>
+            <div className={`mt-0.5 font-bold ${spoilageRisk === 'LOW' ? 'text-forest dark:text-harvest' : 'text-alert'}`}>
+              {spoilageRisk} ({opp.spoilagePercent || 3}%)
+            </div>
           </div>
         </div>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div>
-            <div className="text-[11px] uppercase tracking-wider text-mute">{t('dashboard.expectedNetRealization', 'Estimated Farmer Net')}</div>
-            <div className="mt-1 font-extrabold tabular text-xl text-forest dark:text-harvest">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 items-center">
+          <div className="rounded-xl bg-forest/10 p-3.5 dark:bg-harvest/10 border border-forest/20">
+            <div className="text-[11px] uppercase tracking-wider text-forest dark:text-harvest font-bold">
+              {t('dashboard.expectedNetRealization', 'True Net Farmer Realization')}
+            </div>
+            <div className="mt-1 font-extrabold tabular text-2xl text-forest dark:text-harvest">
               ₹{opp.estimatedFarmerNet}/kg
             </div>
           </div>
-          <ConfidenceIndicator value={opp.aiConfidence} />
+          <ConfidenceIndicator value={opp.aiConfidence || 0.88} />
         </div>
 
         {/* Reasons */}
         {opp.matchReasons?.length > 0 && (
           <div className="mt-4 border-t border-line/60 pt-3 dark:border-night-mute/30">
-            <div className="text-xs font-bold uppercase tracking-wider text-mute">{t('dashboard.whyAiRecommends', 'Why This Deal?')}</div>
-            <ul className="mt-2 space-y-1 text-sm text-ink dark:text-night-text">
-              {opp.matchReasons.filter(r => r.startsWith('✓')).map((reason, idx) => (
+            <div className="text-xs font-bold uppercase tracking-wider text-mute">{t('dashboard.whyAiRecommends', 'Why This Trade?')}</div>
+            <ul className="mt-2 space-y-1 text-xs text-ink dark:text-night-text">
+              {opp.matchReasons.map((reason, idx) => (
                 <li key={idx} className="flex items-start gap-2">
                   <span className="text-forest font-bold">•</span>
-                  <span>{reason.replace('✓ ', '')}</span>
+                  <span>{reason}</span>
                 </li>
               ))}
             </ul>
@@ -85,82 +202,16 @@ function OpportunityCard({ opp, type }) {
         <div className="mt-4 flex justify-end">
           <a
             href={`/matches?listingId=${opp.listing?._id}`}
-            className="flex items-center gap-2 rounded-full border border-forest/30 bg-forest/10 px-5 py-2 text-xs font-bold text-forest hover:bg-forest hover:text-white dark:border-harvest/30 dark:bg-harvest/10 dark:text-harvest transition-colors"
+            className="flex items-center gap-2 rounded-full border border-forest/30 bg-forest px-5 py-2 text-xs font-bold text-white hover:bg-forest-deep dark:bg-harvest dark:text-ink transition-colors"
           >
-            {t('common.details', 'View Deal')} <ArrowRight size={14} />
+            {t('common.details', 'View Trade & Make Offer')} <ArrowRight size={14} />
           </a>
         </div>
       </div>
     );
   }
 
-  // BUY type
-  return (
-    <div className="relative overflow-hidden rounded-[18px] border border-harvest/20 bg-white p-6 shadow-card dark:border-harvest/20 dark:bg-night-card">
-      <div className="absolute left-0 top-0 h-full w-1.5 bg-harvest" />
-      <div className="flex items-center gap-2">
-        <span className="flex h-2.5 w-2.5 rounded-full bg-harvest animate-pulse" />
-        <span className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-harvest">
-          {t('dashboard.todayDecision', "Today's AI Opportunity")} — BUY
-        </span>
-        <DataStatusBadge status="AI_FORECAST" />
-      </div>
-
-      <h3 className="mt-3 text-2xl font-extrabold tracking-tight text-ink dark:text-night-text">
-        {opp.requirement?.commodityName?.toUpperCase()} — {t('common.quantity', 'Required')}: {opp.requirement?.quantityKg} KG
-      </h3>
-
-      <div className="mt-4 grid gap-4 rounded-xl bg-earth/60 p-4 dark:bg-night-lift/50 sm:grid-cols-2 lg:grid-cols-4">
-        <div>
-          <div className="text-[11px] uppercase tracking-wider text-mute">{t('marketplace.available', 'Nearby Available')}</div>
-          <div className="mt-0.5 font-bold tabular text-forest dark:text-harvest">{opp.totalAvailableKg} kg</div>
-        </div>
-        <div>
-          <div className="text-[11px] uppercase tracking-wider text-mute">{t('matches.aiFairPrice', 'AI Fair Price')}</div>
-          <div className="mt-0.5 font-bold tabular">₹{opp.fairPrice}/kg</div>
-        </div>
-        <div>
-          <div className="text-[11px] uppercase tracking-wider text-mute">{t('dashboard.buyerDemandMatch', 'Matched Suppliers')}</div>
-          <div className="mt-0.5 font-bold">{opp.matchedSuppliers?.length || 0}</div>
-        </div>
-        <div>
-          <div className="text-[11px] uppercase tracking-wider text-mute">{t('transactions.transportCost', 'Est. Logistics')}</div>
-          <div className="mt-0.5 font-bold tabular">₹{opp.estimatedLogisticsPerKg}/kg</div>
-        </div>
-      </div>
-
-      {/* Top suppliers */}
-      {opp.matchedSuppliers?.length > 0 && (
-        <div className="mt-4 border-t border-line/60 pt-3 dark:border-night-mute/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-mute">{t('marketplace.findSuppliers', 'Best Matched Suppliers')}</div>
-          <div className="mt-2 space-y-1.5">
-            {opp.matchedSuppliers.slice(0, 3).map((s, idx) => (
-              <div key={idx} className="flex items-center justify-between rounded-lg bg-earth/40 px-3 py-2 dark:bg-night-lift/30">
-                <div className="flex items-center gap-2">
-                  <Target size={12} className="text-forest" />
-                  <span className="text-sm font-medium">{s.listing?.farmer?.name}</span>
-                  <span className="text-xs text-mute">{s.listing?.location}</span>
-                </div>
-                <div className="flex items-center gap-3 text-sm">
-                  <span className="tabular">{s.listing?.availableQuantityKg} kg @ ₹{s.listing?.expectedPriceInr}/kg</span>
-                  <span className="rounded-full bg-forest/10 px-2 py-0.5 text-[10px] font-bold text-forest">{s.score}%</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="mt-4 flex justify-end">
-        <a
-          href={`/matches?requirementId=${opp.requirement?._id}`}
-          className="flex items-center gap-2 rounded-full border border-harvest/30 bg-harvest/10 px-5 py-2 text-xs font-bold text-harvest hover:bg-harvest hover:text-ink transition-colors"
-        >
-          {t('matches.matchesFound', 'View Matches')} <ArrowRight size={14} />
-        </a>
-      </div>
-    </div>
-  );
+  return null;
 }
 
 export default function FarmerDashboard() {
@@ -168,6 +219,7 @@ export default function FarmerDashboard() {
   const { t } = useTranslation();
   const [opportunities, setOpportunities] = useState([]);
   const [listings, setListings] = useState([]);
+  const [supplyPools, setSupplyPools] = useState([]);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -175,12 +227,14 @@ export default function FarmerDashboard() {
     setLoading(true);
     setErr('');
     try {
-      const [oppRes, listRes] = await Promise.all([
+      const [oppRes, listRes, poolRes] = await Promise.all([
         api.get('/marketplace/opportunities'),
         api.get('/marketplace/listings'),
+        api.get('/marketplace/pools').catch(() => ({ data: { pools: [] } })),
       ]);
       setOpportunities(oppRes.data.opportunities || []);
       setListings(listRes.data.listings || []);
+      setSupplyPools(poolRes.data.pools || []);
     } catch (e) {
       setErr(e.response?.data?.error || e.message);
     }
@@ -197,20 +251,20 @@ export default function FarmerDashboard() {
   return (
     <div className="space-y-8">
       <PageHeader
-        eyebrow={t('dashboard.farmerDesk', 'Farmer Dashboard')}
-        title={t('dashboard.whatShouldIDoToday', 'What should I sell today?')}
-        subtitle={t('dashboard.cropAdvisory', 'AI-powered marketplace opportunities based on your produce, market demand, and fair pricing.')}
+        eyebrow={t('dashboard.farmerDesk', 'Farmer Advisory Desk')}
+        title={t('dashboard.whatShouldIDoToday', 'Direct Trading & Crop Advisory')}
+        subtitle={t('dashboard.cropAdvisory', 'AI-powered marketplace optimization prioritizing Net Farm-Gate Realization, distance reduction, and spoilage prevention.')}
         actions={<DataStatusBadge status="AI_FORECAST" />}
       />
 
       {/* Quick stats */}
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-mm border border-line bg-white px-4 py-4 dark:border-night-mute/20 dark:bg-night-card">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-mute">{t('marketplace.produceListings', 'Active Listings')}</div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-mute">{t('marketplace.produceListings', 'Active Farm Produce Listings')}</div>
           <div className="mt-1 text-2xl font-bold tabular">{listings.length}</div>
         </div>
         <div className="rounded-mm border border-line bg-white px-4 py-4 dark:border-night-mute/20 dark:bg-night-card">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-mute">{t('matches.title', 'AI Opportunities')}</div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-mute">{t('matches.title', 'Direct Buyer Matches')}</div>
           <div className="mt-1 text-2xl font-bold tabular text-forest">{opportunities.filter(o => o.type === 'SELL').length}</div>
         </div>
         <div className="rounded-mm border border-line bg-white px-4 py-4 dark:border-night-mute/20 dark:bg-night-card">
@@ -220,18 +274,25 @@ export default function FarmerDashboard() {
               {t('marketplace.listProduce', 'List Produce')}
             </a>
             <a href="/matches" className="rounded-lg bg-harvest/10 px-3 py-1 text-xs font-bold text-harvest hover:bg-harvest hover:text-ink transition-colors">
-              {t('marketplace.findBuyers', 'Find Buyers')}
+              {t('marketplace.findBuyers', 'Find Direct Buyers')}
             </a>
           </div>
         </div>
       </div>
 
+      {/* Interactive Net Realization vs Distance Trade Comparison */}
+      <TradeComparisonWidget />
+
       {/* Opportunities */}
-      <section>
-        <h3 className="mb-3 font-bold flex items-center gap-2">
-          <Sparkles size={18} className="text-forest" />
-          {t('matches.title', 'AI Trade Opportunities')}
-        </h3>
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold flex items-center gap-2 text-ink dark:text-night-text">
+            <Sparkles size={18} className="text-forest" />
+            Direct Buyer Opportunities (Ranked by True Net Realization)
+          </h3>
+          <span className="text-xs text-mute">0 Middlemen Resale Layers</span>
+        </div>
+
         {opportunities.filter(o => o.type === 'SELL').length === 0 ? (
           <div className="rounded-mm border border-dashed border-line bg-earth/30 p-8 text-center dark:border-night-mute/20 dark:bg-night-lift/30">
             <Zap size={28} className="mx-auto text-mute" />
@@ -247,16 +308,24 @@ export default function FarmerDashboard() {
         )}
       </section>
 
-      {/* Buying opportunities for admin/seller */}
-      {opportunities.filter(o => o.type === 'BUY').length > 0 && (
-        <section>
-          <h3 className="mb-3 font-bold flex items-center gap-2">
-            <ShoppingBasket size={18} className="text-harvest" />
-            {t('marketplace.buyerRequirements', 'Buying Opportunities')}
-          </h3>
-          <div className="space-y-6">
-            {opportunities.filter(o => o.type === 'BUY').map((opp, idx) => (
-              <OpportunityCard key={idx} opp={opp} type="BUY" />
+      {/* Supply Pooling Opportunities */}
+      {supplyPools.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold flex items-center gap-2 text-harvest">
+              <Users size={18} />
+              FPO Multi-Farmer Supply Pooling Demands
+            </h3>
+            <span className="text-xs text-mute">Digitally combine small harvests for large buyer orders</span>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {supplyPools.map((pool) => (
+              <SupplyPoolCard
+                key={pool._id}
+                pool={pool}
+                currentUser={user}
+                onContributed={loadData}
+              />
             ))}
           </div>
         </section>

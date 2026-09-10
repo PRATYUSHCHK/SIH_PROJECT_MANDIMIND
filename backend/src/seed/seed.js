@@ -15,6 +15,12 @@ import {
   Purchase,
   Alert,
   ModelPerformance,
+  ProduceListing,
+  BuyerRequirement,
+  Transaction,
+  Offer,
+  MarketplaceMatch,
+  SupplyPool,
 } from '../models/index.js';
 
 const COMMODITIES = [
@@ -46,7 +52,6 @@ export async function seed({ force = false } = {}) {
     return;
   }
 
-  const { ProduceListing, BuyerRequirement, Transaction, Offer, MarketplaceMatch } = await import('../models/index.js');
   await Promise.all([
     User.deleteMany({}),
     FarmerProfile.deleteMany({}),
@@ -66,6 +71,7 @@ export async function seed({ force = false } = {}) {
     Transaction.deleteMany({}),
     Offer.deleteMany({}),
     MarketplaceMatch.deleteMany({}),
+    SupplyPool.deleteMany({}),
   ]);
 
   const passwordHash = await bcrypt.hash('demo1234', 10);
@@ -203,13 +209,20 @@ export async function seed({ force = false } = {}) {
 
   // ─── Marketplace seed data ──────────────────────────────────────
 
-  // Add buyer users
-  const [buyer1, buyer2] = await User.create([
-    { name: 'Hyderabad Fresh Foods', email: 'buyer@mandimind.demo', passwordHash, role: 'buyer', location: 'Hyderabad', avatarInitials: 'HF' },
-    { name: 'Delhi Wholesale Corp', email: 'buyer2@mandimind.demo', passwordHash, role: 'buyer', location: 'Delhi', avatarInitials: 'DW' },
+  // Additional farmers for multi-farmer aggregation testing
+  const [farmer2] = await User.create([
+    { name: 'Suresh Patel', email: 'farmer2@mandimind.demo', passwordHash, role: 'farmer', location: 'Suryapet', avatarInitials: 'SP' },
   ]);
 
-  // Create sample produce listings
+  // Direct buyers: Retailer, Organic Kitchen/Restaurant, Food Processing Enterprise, and Distant Wholesaler
+  const [buyer1, buyer2, buyer3, buyer4] = await User.create([
+    { name: 'Hyderabad Fresh Supermarkets', email: 'buyer@mandimind.demo', passwordHash, role: 'buyer', location: 'Hyderabad', avatarInitials: 'HF' },
+    { name: 'Delhi National Produce Corp', email: 'buyer2@mandimind.demo', passwordHash, role: 'buyer', location: 'Delhi', avatarInitials: 'DN' },
+    { name: 'Deccan Agro Processors & Sauces', email: 'processor@mandimind.demo', passwordHash, role: 'buyer', location: 'Hyderabad', avatarInitials: 'DA' },
+    { name: 'Green Leaf Farm-to-Table Kitchen', email: 'restaurant@mandimind.demo', passwordHash, role: 'buyer', location: 'Secunderabad', avatarInitials: 'GL' },
+  ]);
+
+  // Farmer produce listings
   const listing1 = await ProduceListing.create({
     farmer: farmer._id,
     commodity: bySlug.tomato._id,
@@ -225,6 +238,8 @@ export async function seed({ force = false } = {}) {
     lng: 79.2671,
     availableFrom: today,
     deliveryPreference: 'both',
+    tradePreference: 'any',
+    packagingType: 'standard_crate',
     availableQuantityKg: 500,
     dataStatus: 'SIMULATED',
   });
@@ -233,7 +248,7 @@ export async function seed({ force = false } = {}) {
     farmer: farmer._id,
     commodity: bySlug.onion._id,
     commodityName: 'Onion',
-    quantityKg: 300,
+    quantityKg: 350,
     unit: 'kg',
     qualityGrade: 'A',
     harvestDate: new Date(today.getTime() - 2 * 86400000),
@@ -243,8 +258,31 @@ export async function seed({ force = false } = {}) {
     lat: 17.0575,
     lng: 79.2671,
     availableFrom: today,
-    deliveryPreference: 'pickup',
-    availableQuantityKg: 300,
+    deliveryPreference: 'both',
+    tradePreference: 'pool',
+    packagingType: 'gunny_bag',
+    availableQuantityKg: 350,
+    dataStatus: 'SIMULATED',
+  });
+
+  const listing2_suresh = await ProduceListing.create({
+    farmer: farmer2._id,
+    commodity: bySlug.onion._id,
+    commodityName: 'Onion',
+    quantityKg: 450,
+    unit: 'kg',
+    qualityGrade: 'A',
+    harvestDate: new Date(today.getTime() - 1 * 86400000),
+    expectedPriceInr: 25.5,
+    minimumPriceInr: 23,
+    location: 'Suryapet',
+    lat: 17.1439,
+    lng: 79.6239,
+    availableFrom: today,
+    deliveryPreference: 'both',
+    tradePreference: 'pool',
+    packagingType: 'gunny_bag',
+    availableQuantityKg: 450,
     dataStatus: 'SIMULATED',
   });
 
@@ -263,54 +301,141 @@ export async function seed({ force = false } = {}) {
     lng: 79.2671,
     availableFrom: today,
     deliveryPreference: 'both',
+    packagingType: 'ventilated_box',
     availableQuantityKg: 200,
     dataStatus: 'SIMULATED',
   });
 
-  // Create sample buyer requirements
-  const req1 = await BuyerRequirement.create({
+  const listing4_spinach = await ProduceListing.create({
+    farmer: farmer._id,
+    commodity: bySlug.spinach._id,
+    commodityName: 'Spinach',
+    quantityKg: 150,
+    unit: 'kg',
+    qualityGrade: 'A',
+    harvestDate: new Date(),
+    expectedPriceInr: 20,
+    minimumPriceInr: 17,
+    location: 'Nalgonda',
+    lat: 17.0575,
+    lng: 79.2671,
+    availableFrom: today,
+    deliveryPreference: 'both',
+    packagingType: 'refrigerated_box',
+    availableQuantityKg: 150,
+    dataStatus: 'SIMULATED',
+  });
+
+  // Buyer requirements
+  // 1. Local Tomato requirement (Hyderabad - 95km)
+  const req1_local_tomato = await BuyerRequirement.create({
     buyer: buyer1._id,
     commodity: bySlug.tomato._id,
     commodityName: 'Tomato',
-    quantityKg: 800,
+    quantityKg: 500,
     qualityGrade: 'A',
     maximumPriceInr: 30,
     deliveryLocation: 'Hyderabad',
     deliveryLat: 17.385,
     deliveryLng: 78.4867,
+    buyerType: 'retailer',
     requiredByDate: new Date(today.getTime() + 2 * 86400000),
     dataStatus: 'SIMULATED',
   });
 
-  const req2 = await BuyerRequirement.create({
-    buyer: buyer1._id,
+  // 2. Distant Tomato requirement with artificially high price (Delhi - 1500km)
+  const req2_distant_tomato = await BuyerRequirement.create({
+    buyer: buyer2._id,
+    commodity: bySlug.tomato._id,
+    commodityName: 'Tomato',
+    quantityKg: 1000,
+    qualityGrade: 'A',
+    maximumPriceInr: 36, // Higher gross price, but high transport & spoilage
+    deliveryLocation: 'Delhi',
+    deliveryLat: 28.6139,
+    deliveryLng: 77.209,
+    buyerType: 'wholesaler',
+    requiredByDate: new Date(today.getTime() + 4 * 86400000),
+    dataStatus: 'SIMULATED',
+  });
+
+  // 3. Bulk Onion requirement (1000kg) allowing Supply Pooling
+  const req3_bulk_onion = await BuyerRequirement.create({
+    buyer: buyer3._id,
     commodity: bySlug.onion._id,
     commodityName: 'Onion',
-    quantityKg: 500,
+    quantityKg: 1000,
     qualityGrade: 'Any',
     maximumPriceInr: 28,
     deliveryLocation: 'Hyderabad',
     deliveryLat: 17.385,
     deliveryLng: 78.4867,
+    buyerType: 'processor',
+    allowPoolAggregation: true,
     requiredByDate: new Date(today.getTime() + 3 * 86400000),
     dataStatus: 'SIMULATED',
   });
 
-  const req3 = await BuyerRequirement.create({
-    buyer: buyer2._id,
-    commodity: bySlug.potato._id,
-    commodityName: 'Potato',
-    quantityKg: 1000,
-    qualityGrade: 'A',
-    maximumPriceInr: 25,
-    deliveryLocation: 'Delhi',
-    deliveryLat: 28.6139,
-    deliveryLng: 77.209,
-    requiredByDate: new Date(today.getTime() + 5 * 86400000),
+  // Pre-seed a Supply Pool for the bulk Onion requirement
+  const pool1 = await SupplyPool.create({
+    buyerRequirement: req3_bulk_onion._id,
+    commodity: bySlug.onion._id,
+    commodityName: 'Onion',
+    qualityGrade: 'Any',
+    targetQuantityKg: 1000,
+    collectedQuantityKg: 800,
+    targetPriceInr: 28,
+    averageFarmerPriceInr: 25.75,
+    destinationLocation: 'Hyderabad',
+    destinationLat: 17.385,
+    destinationLng: 78.4867,
+    status: 'open',
+    contributors: [
+      {
+        farmer: farmer._id,
+        listing: listing2._id,
+        quantityKg: 350,
+        offeredPriceInr: 26,
+        qualityGrade: 'A',
+        location: 'Nalgonda',
+        lat: 17.0575,
+        lng: 79.2671,
+        status: 'committed',
+      },
+      {
+        farmer: farmer2._id,
+        listing: listing2_suresh._id,
+        quantityKg: 450,
+        offeredPriceInr: 25.5,
+        qualityGrade: 'A',
+        location: 'Suryapet',
+        lat: 17.1439,
+        lng: 79.6239,
+        status: 'committed',
+      },
+    ],
+    consolidatedLogistics: {
+      totalDistanceKm: 110,
+      estimatedTravelTimeMin: 145,
+      totalTransportCostInr: 1750,
+      transportCostPerKg: 2.18,
+      vehicleType: 'standard',
+      spoilageRisk: 'LOW',
+      routeWaypoints: [
+        { farmerName: 'Ravi Reddy', location: 'Nalgonda', lat: 17.0575, lng: 79.2671, pickupQtyKg: 350, sequence: 1 },
+        { farmerName: 'Suresh Patel', location: 'Suryapet', lat: 17.1439, lng: 79.6239, pickupQtyKg: 450, sequence: 2 },
+      ],
+    },
+    intermediaryReduction: {
+      commercialLayersCount: 0,
+      serviceProviders: ['Direct Transport Logistics', 'FPO Quality Cell'],
+      estimatedSavingsPct: 22.4,
+    },
+    notes: 'Aggregated FPO collection route across Nalgonda-Suryapet belt for Deccan Agro Processors.',
     dataStatus: 'SIMULATED',
   });
 
-  console.log('[mandimind] seed complete — SIMULATED DEMO DATA');
+  console.log('[mandimind] seed complete — SIMULATED DEMO DATA WITH TRADE VIABILITY & SUPPLY POOLS');
 }
 
 if (process.argv[1]?.includes('seed.js')) {

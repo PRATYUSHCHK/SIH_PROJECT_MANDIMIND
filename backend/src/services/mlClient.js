@@ -28,6 +28,8 @@ export const mlClient = {
   forecastSupply: (payload) => post('/forecast/supply', payload),
   elasticity: (payload) => post('/elasticity', payload),
   spoilage: (payload) => post('/spoilage', payload),
+  spoilageRisk: (payload) => post('/spoilage/risk', payload).catch(() => null),
+  tradeViability: (payload) => post('/trade/viability', payload).catch(() => null),
   optimize: (payload) => post('/optimize', payload),
   explain: (payload) => post('/explain', payload),
   simulate: (payload) => post('/simulate', payload),

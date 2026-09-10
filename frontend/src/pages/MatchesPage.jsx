@@ -5,7 +5,9 @@ import { useTranslation } from '../i18n/index.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { DataStatusBadge } from '../components/DataStatusBadge.jsx';
 import { ErrorState, LoadingSkeleton } from '../components/States.jsx';
-import { ConfidenceIndicator } from '../components/ConfidenceIndicator.jsx';
+import { TradeViabilityCard } from '../components/TradeViabilityCard.jsx';
+import { SupplyPoolCard } from '../components/SupplyPoolCard.jsx';
+import { PriceWaterfallCard } from '../components/PriceWaterfallCard.jsx';
 import {
   Zap,
   Check,
@@ -19,6 +21,10 @@ import {
   Target,
   Sparkles,
   ArrowRight,
+  AlertTriangle,
+  Layers,
+  Truck,
+  ShieldAlert,
 } from 'lucide-react';
 
 function MatchScoreBadge({ score }) {
@@ -37,133 +43,91 @@ function MatchScoreBadge({ score }) {
 
 function MatchCard({ match, currentUser, onMakeOffer }) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
+  const [vehicle, setVehicle] = useState('standard');
+  const [liveViability, setLiveViability] = useState(match);
+  const [loadingViability, setLoadingViability] = useState(false);
+
   const listing = match.listing;
   const requirement = match.requirement;
 
   if (!listing || !requirement) return null;
 
-  const verdictColor = {
-    'FAIR_DEAL': 'bg-forest/15 text-forest border-forest/30',
-    'GOOD_FOR_FARMER': 'bg-harvest/15 text-harvest border-harvest/30',
-    'GOOD_FOR_BUYER': 'bg-info/15 text-info border-info/30',
-    'OVERPRICED': 'bg-alert/15 text-alert border-alert/30',
-    'UNDERPRICED': 'bg-mute/15 text-mute border-mute/30',
-  }[match.dealVerdict] || 'bg-earth text-ink';
-
-  const verdictLabel = {
-    'FAIR_DEAL': t('badges.fairDeal', 'FAIR DEAL'),
-    'GOOD_FOR_FARMER': t('badges.goodFarmer', 'GOOD FOR FARMER'),
-    'GOOD_FOR_BUYER': t('badges.goodBuyer', 'GOOD FOR BUYER'),
-    'OVERPRICED': t('badges.overpriced', 'OVERPRICED'),
-    'UNDERPRICED': t('badges.underpriced', 'UNDERPRICED'),
-  }[match.dealVerdict] || match.dealVerdict?.replace('_', ' ');
+  async function handleVehicleChange(newVehicle) {
+    setVehicle(newVehicle);
+    setLoadingViability(true);
+    try {
+      const { data } = await api.post('/marketplace/trade-analysis', {
+        listingId: listing._id,
+        requirementId: requirement._id,
+        vehicleType: newVehicle,
+      });
+      if (data.viability) {
+        setLiveViability({
+          ...match,
+          ...data.viability,
+          tradeViabilityScore: data.viability.viabilityScore,
+          spoilageRiskScore: data.viability.spoilage?.spoilageRiskScore,
+          netFarmerRealizationInr: data.viability.netFarmerRealizationInr,
+          priceWaterfall: data.viability.priceWaterfall,
+          advisoryPills: data.viability.advisoryPills,
+          isRecommended: data.viability.isRecommended,
+          warningReason: data.viability.warningReason,
+        });
+      }
+    } catch {
+      // ignore fallback
+    }
+    setLoadingViability(false);
+  }
 
   const isSupplySide = currentUser?.role === 'farmer' || currentUser?.role === 'seller';
+  const isRecommended = liveViability.isRecommended !== false;
 
   return (
-    <div className="rounded-mm border border-line bg-white p-6 shadow-card dark:border-night-mute/20 dark:bg-night-card">
+    <div className={`rounded-mm border bg-white p-6 shadow-card dark:bg-night-card transition-all ${
+      isRecommended ? 'border-line dark:border-night-mute/20' : 'border-alert/50 bg-alert/[0.02]'
+    }`}>
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2">
           <MatchScoreBadge score={match.matchScore} />
-          <span className={`rounded-full border px-3 py-1 text-xs font-bold ${verdictColor}`}>
-            {verdictLabel}
+          <span className="rounded-full bg-forest/10 px-2.5 py-0.5 text-xs font-bold text-forest uppercase">
+            {match.dealVerdict?.replace('_', ' ')}
           </span>
-          <DataStatusBadge status="AI_FORECAST" />
+          <span className="rounded-full bg-earth px-2.5 py-0.5 text-xs font-medium text-mute dark:bg-night-lift">
+            {requirement.buyerType ? `Direct ${requirement.buyerType.toUpperCase()}` : 'DIRECT BUYER'}
+          </span>
         </div>
+        <DataStatusBadge status="AI_FORECAST" />
       </div>
 
-      {/* Match overview */}
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-lg bg-earth/50 p-3 dark:bg-night-lift/40">
-          <div className="text-[11px] uppercase text-mute">{t('common.commodity', 'Commodity')}</div>
-          <div className="mt-0.5 font-bold text-ink dark:text-night-text">{listing.commodityName}</div>
-        </div>
-        <div className="rounded-lg bg-earth/50 p-3 dark:bg-night-lift/40">
-          <div className="text-[11px] uppercase text-mute">{t('common.quantity', 'Quantity')}</div>
-          <div className="mt-0.5 font-bold tabular text-ink dark:text-night-text">{listing.quantityKg} kg</div>
-        </div>
-        <div className="rounded-lg bg-earth/50 p-3 dark:bg-night-lift/40">
-          <div className="text-[11px] uppercase text-mute">Supplier → Buyer</div>
-          <div className="mt-0.5 text-xs text-ink dark:text-night-text">
-            {listing.farmer?.name || 'Supplier'} → {requirement.buyer?.name || 'Buyer'}
-          </div>
-        </div>
-        <div className="rounded-lg bg-earth/50 p-3 dark:bg-night-lift/40">
-          <div className="text-[11px] uppercase text-mute">{t('matches.aiFairPrice', 'AI Fair Price')}</div>
-          <div className="mt-0.5 font-bold tabular text-forest dark:text-harvest">₹{match.aiFairPriceInr}/kg</div>
-        </div>
-      </div>
+      {/* Trade Viability Card Component */}
+      <TradeViabilityCard
+        viability={liveViability}
+        listing={listing}
+        requirement={requirement}
+        buyerGrossPrice={requirement.maximumPriceInr}
+        onVehicleChange={handleVehicleChange}
+        selectedVehicle={vehicle}
+      />
 
-      {/* Match Reasons */}
-      <div className="mt-4 border-t border-line/60 pt-4 dark:border-night-mute/30">
-        <div className="text-xs font-bold uppercase tracking-wider text-mute">{t('matches.matchAnalysis', 'Match Analysis')}</div>
-        <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
-          {(match.matchReasons || []).map((reason, idx) => (
-            <div key={idx} className="flex items-center gap-2 text-sm">
-              {reason.startsWith('✓') ? (
-                <Check size={14} className="text-forest shrink-0" />
-              ) : reason.startsWith('~') ? (
-                <span className="text-harvest shrink-0">~</span>
-              ) : (
-                <XIcon size={14} className="text-alert shrink-0" />
-              )}
-              <span className="text-ink dark:text-night-text">{reason.replace(/^[✓~✗]\s*/, '')}</span>
-            </div>
-          ))}
+      {/* Action footer */}
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-line/60 pt-4 dark:border-night-mute/30">
+        <div className="text-xs text-mute">
+          <span>{listing.commodityName}</span> • <span className="font-bold tabular">{listing.quantityKg} kg</span> @ <span>{listing.location}</span>
         </div>
-      </div>
 
-      {/* AI Demand Trend */}
-      {match.demandTrend && (
-        <div className="mt-3 flex items-center gap-2 text-xs text-mute">
-          {match.demandTrend === 'up' ? (
-            <><TrendingUp size={14} className="text-forest" /> {t('matches.demandTrend', 'Demand trend: increasing')}</>
-          ) : (
-            <><TrendingDown size={14} className="text-alert" /> {t('matches.demandTrend', 'Demand trend: softening')}</>
-          )}
-        </div>
-      )}
-
-      {/* Expand details */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="mt-3 text-xs font-bold text-forest hover:text-forest-deep dark:text-harvest"
-      >
-        {expanded ? t('common.close', 'Hide details') : t('matches.priceDetails', 'Show price details')}
-      </button>
-
-      {expanded && (
-        <div className="mt-3 grid gap-3 rounded-lg bg-earth/40 p-4 dark:bg-night-lift/30 sm:grid-cols-3">
-          <div>
-            <div className="text-[10px] uppercase text-mute">Supplier Asking</div>
-            <div className="font-bold tabular">₹{listing.expectedPriceInr}/kg</div>
-          </div>
-          <div>
-            <div className="text-[10px] uppercase text-mute">Buyer Max</div>
-            <div className="font-bold tabular">₹{requirement.maximumPriceInr}/kg</div>
-          </div>
-          <div>
-            <div className="text-[10px] uppercase text-mute">{t('matches.aiFairPrice', 'AI Fair Price')}</div>
-            <div className="font-bold tabular text-forest dark:text-harvest">₹{match.aiFairPriceInr}/kg</div>
-          </div>
-          {match.aiPriceRange && (
-            <div className="sm:col-span-3">
-              <div className="text-[10px] uppercase text-mute">{t('dashboard.expectedPriceRange', 'AI Predicted Range')}</div>
-              <div className="font-bold tabular">₹{match.aiPriceRange.lower} – ₹{match.aiPriceRange.upper}/kg</div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Action */}
-      <div className="mt-4 flex justify-end">
         <button
-          onClick={() => onMakeOffer(match)}
-          className="flex items-center gap-2 rounded-lg bg-forest px-4 py-2 text-sm font-bold text-white hover:bg-forest-deep transition-colors dark:bg-harvest dark:text-ink"
+          onClick={() => onMakeOffer({ match: liveViability, vehicle })}
+          className={`flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-bold text-white transition-colors ${
+            isRecommended
+              ? 'bg-forest hover:bg-forest-deep dark:bg-harvest dark:text-ink'
+              : 'bg-alert hover:bg-alert/90'
+          }`}
         >
-          {t('matches.makeOffer', 'Make Offer')} <ArrowRight size={14} />
+          {!isRecommended && <AlertTriangle size={15} />}
+          <span>{isRecommended ? t('matches.makeOffer', 'Make Direct Offer') : 'Review & Proceed with Caution'}</span>
+          <ArrowRight size={14} />
         </button>
       </div>
     </div>
@@ -173,37 +137,63 @@ function MatchCard({ match, currentUser, onMakeOffer }) {
 function MultiFarmerCard({ result }) {
   const { t } = useTranslation();
   return (
-    <div className="rounded-mm border-2 border-harvest/30 bg-harvest/5 p-6">
-      <div className="flex items-center gap-2 text-harvest">
-        <Users size={18} />
-        <span className="text-sm font-extrabold uppercase">Combined Supply Match</span>
-      </div>
-      <div className="mt-3">
-        <div className="text-sm text-ink dark:text-night-text">
-          Buyer needs <strong>{result.requirement?.quantityKg} kg</strong> of <strong>{result.requirement?.commodityName}</strong>.
-          Multiple suppliers can fulfill this order:
+    <div className="rounded-mm border-2 border-harvest/30 bg-harvest/5 p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-harvest">
+          <Users size={18} />
+          <span className="text-sm font-extrabold uppercase">Multi-Farmer Supply Match</span>
         </div>
-        <div className="mt-3 space-y-2">
-          {result.suppliers?.map((s, idx) => (
-            <div key={idx} className="flex items-center justify-between rounded-lg bg-white/80 px-3 py-2 dark:bg-night-card/80">
-              <span className="text-sm font-medium">{s.listing?.farmer?.name || 'Supplier'}</span>
-              <span className="text-xs text-mute">{s.listing?.location}</span>
-              <span className="font-bold tabular">{(s.listing?.availableQuantityKg != null ? s.listing?.availableQuantityKg : s.listing?.quantityKg)} kg @ ₹{s.listing?.expectedPriceInr}/kg</span>
+        <span className="rounded-full bg-forest/10 px-2.5 py-0.5 text-xs font-bold text-forest">
+          Aggregation Feasible
+        </span>
+      </div>
+
+      <div className="text-sm text-ink dark:text-night-text">
+        Buyer <strong>{result.requirement?.buyer?.name || 'Direct Buyer'}</strong> needs{' '}
+        <strong>{result.requirement?.quantityKg} kg</strong> of <strong>{result.requirement?.commodityName}</strong> in{' '}
+        <strong>{result.requirement?.deliveryLocation}</strong>. Multiple nearby producers can fulfill this order collectively:
+      </div>
+
+      <div className="space-y-2">
+        {result.suppliers?.map((s, idx) => (
+          <div key={idx} className="flex items-center justify-between rounded-lg bg-white/80 px-3 py-2.5 dark:bg-night-card/80 text-xs">
+            <div>
+              <span className="font-bold text-ink dark:text-night-text">{s.listing?.farmer?.name || 'Producer'}</span>
+              <span className="text-mute ml-2">• {s.listing?.location}</span>
             </div>
-          ))}
-        </div>
-        <div className="mt-3 flex items-center justify-between rounded-lg bg-forest/10 px-3 py-2">
-          <span className="text-sm font-bold">{t('common.total', 'Total Available')}</span>
-          <span className="font-bold tabular text-forest">{result.totalSupplyKg} kg</span>
-        </div>
+            <div className="flex items-center gap-3">
+              <span className="font-bold tabular">{s.listing?.availableQuantityKg || s.listing?.quantityKg} kg @ ₹{s.listing?.expectedPriceInr}/kg</span>
+              <span className="rounded-full bg-forest/10 px-2 py-0.5 font-bold text-forest">₹{s.match?.netFarmerRealizationInr || 26}/kg net</span>
+            </div>
+          </div>
+        ))}
       </div>
+
+      <div className="flex items-center justify-between rounded-lg bg-forest/10 px-4 py-2.5 text-xs">
+        <span className="font-bold text-forest dark:text-harvest">{t('common.total', 'Total Aggregated Supply')}</span>
+        <span className="font-extrabold tabular text-base text-forest dark:text-harvest">{result.totalSupplyKg} kg</span>
+      </div>
+
+      {result.consolidationOptions?.length > 0 && (
+        <div className="rounded-lg bg-white/90 p-3 text-xs dark:bg-night-card/90 space-y-1">
+          <div className="font-bold text-forest dark:text-harvest flex items-center gap-1.5">
+            <Truck size={14} /> Consolidated Transport Opportunity:
+          </div>
+          <div className="text-mute">
+            {result.consolidationOptions[0]?.recommendation}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function OfferModal({ match, currentUser, onClose }) {
+function OfferModal({ matchData, currentUser, onClose }) {
   const { t } = useTranslation();
-  const [price, setPrice] = useState(match.aiFairPriceInr || '');
+  const match = matchData.match;
+  const vehicle = matchData.vehicle || 'standard';
+
+  const [price, setPrice] = useState(match.requirement?.maximumPriceInr || match.aiFairPriceInr || '');
   const availableQty = match.listing?.availableQuantityKg != null ? match.listing?.availableQuantityKg : match.listing?.quantityKg;
   const [qty, setQty] = useState(availableQty || '');
   const [message, setMessage] = useState('');
@@ -212,6 +202,7 @@ function OfferModal({ match, currentUser, onClose }) {
 
   const isBuyer = currentUser?.role === 'buyer';
   const isSupplySide = currentUser?.role === 'farmer' || currentUser?.role === 'seller';
+  const isRecommended = match.isRecommended !== false;
 
   async function submit(e) {
     e.preventDefault();
@@ -222,6 +213,7 @@ function OfferModal({ match, currentUser, onClose }) {
         requirementId: match.requirement?._id,
         priceInr: Number(price),
         quantityKg: Number(qty),
+        vehicleType: vehicle,
         message,
       });
       setSubmitted(true);
@@ -234,21 +226,17 @@ function OfferModal({ match, currentUser, onClose }) {
   }
 
   if (submitted) {
-    const notifyText = isBuyer
-      ? 'The supplier will be notified of your offer. You can track the status in Transactions.'
-      : isSupplySide
-      ? 'The buyer will be notified of your offer. You can track the status in Transactions.'
-      : 'Offer submitted successfully. You can track the status in Transactions.';
-
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div className="w-full max-w-md rounded-mm bg-white p-8 text-center shadow-card dark:bg-night-card">
-          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-forest/10">
-            <Check size={32} className="text-forest" />
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-card dark:bg-night-card space-y-4">
+          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-forest text-white shadow-lg">
+            <Check size={32} />
           </div>
-          <h3 className="mt-4 text-xl font-bold">{t('matches.offerSuccess', 'Offer Submitted!')}</h3>
-          <p className="mt-2 text-sm text-mute">{notifyText}</p>
-          <button onClick={onClose} className="mt-6 rounded-lg bg-forest px-6 py-2.5 text-sm font-bold text-white hover:bg-forest-deep">
+          <h3 className="text-xl font-bold">{t('matches.offerSuccess', 'Offer Submitted!')}</h3>
+          <p className="text-xs text-mute">
+            Counterparty will be notified of your direct offer. You can track status and logistics under Transactions.
+          </p>
+          <button onClick={onClose} className="rounded-lg bg-forest px-6 py-2.5 text-sm font-bold text-white hover:bg-forest-deep">
             {t('common.close', 'Done')}
           </button>
         </div>
@@ -259,47 +247,92 @@ function OfferModal({ match, currentUser, onClose }) {
   const total = Number(price) * Number(qty);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-mm bg-white p-6 shadow-card dark:bg-night-card max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold">
-            {isSupplySide ? t('matches.makeOfferToBuyer', 'Make Offer to Buyer') : isBuyer ? t('matches.makeOfferToSupplier', 'Make Offer to Supplier') : t('matches.makeOffer', 'Make an Offer')}
-          </h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl border border-line bg-white p-6 shadow-2xl dark:border-night-mute/20 dark:bg-night-card max-h-[90vh] overflow-y-auto space-y-4">
+        <div className="flex items-center justify-between border-b border-line/60 pb-3 dark:border-night-mute/30">
+          <div>
+            <h2 className="text-lg font-bold">
+              {isSupplySide ? 'Make Direct Offer to Buyer' : 'Make Offer to Supplier'}
+            </h2>
+            <p className="text-xs text-mute">Direct Agricultural Trade • Zero Middleman Resale Layers</p>
+          </div>
           <button onClick={onClose} className="text-mute hover:text-ink"><XIcon size={20} /></button>
         </div>
-        <div className="rounded-lg bg-earth/50 p-4 dark:bg-night-lift/40 mb-4">
-          <div className="text-sm font-bold">{match.listing?.commodityName}</div>
-          <div className="text-xs text-mute">
-            {match.listing?.quantityKg} kg • {match.listing?.qualityGrade} • {match.listing?.location}
+
+        {/* Warning if deal is economically poor */}
+        {!isRecommended && (
+          <div className="rounded-lg border border-alert/40 bg-alert/10 p-3 text-xs text-alert">
+            <div className="font-bold flex items-center gap-1.5">
+              <AlertTriangle size={14} /> ⚠️ Pre-Trade Advisory Warning
+            </div>
+            <div className="mt-1 text-ink dark:text-night-text">
+              {match.warningReason || 'High transport and spoilage risk reduce net profit.'}
+            </div>
           </div>
-          <div className="mt-2 text-xs text-mute">
-            {t('matches.aiFairPrice', 'AI Fair Price')}: <span className="font-bold text-forest dark:text-harvest">₹{match.aiFairPriceInr}/kg</span>
+        )}
+
+        <div className="rounded-xl bg-earth/50 p-4 dark:bg-night-lift/40 space-y-2 text-xs">
+          <div className="flex justify-between font-bold text-sm text-ink dark:text-night-text">
+            <span>{match.listing?.commodityName} ({match.listing?.qualityGrade || 'Grade A'})</span>
+            <span className="text-forest dark:text-harvest">Net Est: ₹{match.netFarmerRealizationInr}/kg</span>
+          </div>
+          <div className="text-mute flex justify-between">
+            <span>{match.listing?.location} → {match.requirement?.deliveryLocation}</span>
+            <span>{match.distanceKm} km • {vehicle === 'refrigerated' ? '❄️ Cold-Chain' : 'Standard Vehicle'}</span>
           </div>
         </div>
+
         <form onSubmit={submit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold uppercase text-mute mb-1">{t('matches.offeredPrice', 'Your Offer (₹/kg)')}</label>
-              <input type="number" min="0" step="0.5" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" required />
+              <label className="block text-xs font-bold uppercase text-mute mb-1">{t('matches.offeredPrice', 'Offer Price (₹/kg)')}</label>
+              <input
+                type="number"
+                min="0"
+                step="0.5"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20"
+                required
+              />
             </div>
             <div>
               <label className="block text-xs font-bold uppercase text-mute mb-1">{t('matches.offerQuantity', 'Quantity (kg)')}</label>
-              <input type="number" min="1" max={availableQty} value={qty} onChange={(e) => setQty(e.target.value)} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" required />
+              <input
+                type="number"
+                min="1"
+                max={availableQty}
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+                className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20"
+                required
+              />
             </div>
           </div>
+
           <div>
             <label className="block text-xs font-bold uppercase text-mute mb-1">{t('matches.notes', 'Message (optional)')}</label>
-            <input type="text" value={message} onChange={(e) => setMessage(e.target.value)} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" placeholder="Add any notes for the counterparty..." />
+            <input
+              type="text"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20"
+              placeholder="e.g., Harvested yesterday morning, packed in ventilated crates..."
+            />
           </div>
+
           {total > 0 && (
-            <div className="rounded-lg bg-forest/10 px-4 py-3 dark:bg-harvest/10">
+            <div className="rounded-xl bg-forest/10 px-4 py-3 dark:bg-harvest/10">
               <div className="text-xs text-mute">{t('transactions.totalValue', 'Total Transaction Value')}</div>
               <div className="font-extrabold tabular text-xl text-forest dark:text-harvest">₹{total.toLocaleString('en-IN')}</div>
             </div>
           )}
-          <div className="flex justify-end gap-3">
-            <button type="button" onClick={onClose} className="rounded-lg border border-line px-4 py-2 text-sm font-medium dark:border-night-mute/20">{t('common.cancel', 'Cancel')}</button>
-            <button type="submit" disabled={loading} className="rounded-lg bg-forest px-4 py-2 text-sm font-bold text-white hover:bg-forest-deep disabled:opacity-50">
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="rounded-lg border border-line px-4 py-2 text-sm font-medium dark:border-night-mute/20">
+              {t('common.cancel', 'Cancel')}
+            </button>
+            <button type="submit" disabled={loading} className="rounded-lg bg-forest px-5 py-2 text-sm font-bold text-white hover:bg-forest-deep disabled:opacity-50 dark:bg-harvest dark:text-ink">
               {loading ? t('matches.submitting', 'Submitting...') : t('common.submit', 'Submit Offer')}
             </button>
           </div>
@@ -312,13 +345,14 @@ function OfferModal({ match, currentUser, onClose }) {
 export default function MatchesPage() {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const [tab, setTab] = useState('direct'); // 'direct' | 'pools'
   const [matches, setMatches] = useState([]);
   const [multiFarmerResults, setMultiFarmerResults] = useState([]);
+  const [supplyPools, setSupplyPools] = useState([]);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
-  const [offerMatch, setOfferMatch] = useState(null);
+  const [offerMatchData, setOfferMatchData] = useState(null);
 
-  // Get query params
   const params = new URLSearchParams(window.location.search);
   const listingId = params.get('listingId');
   const requirementId = params.get('requirementId');
@@ -335,6 +369,7 @@ export default function MatchesPage() {
       const { data } = await api.get(`/marketplace/matches${queryString}`);
       setMatches(data.matches || []);
       setMultiFarmerResults(data.multiFarmerResults || []);
+      setSupplyPools(data.supplyPools || []);
     } catch (e) {
       setErr(e.response?.data?.error || e.message);
     }
@@ -351,66 +386,130 @@ export default function MatchesPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow={t('matches.eyebrow', 'AI Matching Engine')}
-        title={t('matches.title', 'Produce–Demand Matches')}
-        subtitle={t('matches.subtitle', 'AI matches produce listings with buyer requirements using commodity, quality, price, location, and demand data.')}
+        eyebrow={t('matches.eyebrow', 'AI Trade Viability & Matching Engine')}
+        title={t('matches.title', 'Produce–Demand Intelligence')}
+        subtitle={t('matches.subtitle', 'Ranks direct buyers by True Net Farmer Realization, logistics cost, and transit spoilage risk rather than gross price alone.')}
         actions={
           <div className="flex items-center gap-2">
             <DataStatusBadge status="AI_FORECAST" />
-            <button onClick={loadMatches} className="rounded-full border border-line px-3 py-2 text-xs font-bold hover:bg-earth dark:border-night-mute/20 dark:hover:bg-night-lift">
-              {t('matches.reRunMatching', 'Re-Run Matching')}
+            <button onClick={loadMatches} className="rounded-full border border-line px-3.5 py-1.5 text-xs font-bold hover:bg-earth dark:border-night-mute/20 dark:hover:bg-night-lift">
+              {t('matches.reRunMatching', 'Re-Run Viability & Matching')}
             </button>
           </div>
         }
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-earth/40 px-4 py-2 text-xs text-mute dark:border-night-mute/20 dark:bg-night-lift/40">
-        <div>
-          <span className="font-bold text-ink dark:text-night-text">{t('common.dataSource', 'Data Source')}:</span> {t('badges.aiForecast', 'AI_FORECAST')}
-        </div>
-        <div>
-          <span className="font-bold text-ink dark:text-night-text">{t('matches.matchesFound', 'Matches Found')}:</span> {matches.length}
-        </div>
+      {/* Navigation Tabs */}
+      <div className="flex items-center gap-3 border-b border-line dark:border-night-mute/30 pb-2">
+        <button
+          type="button"
+          onClick={() => setTab('direct')}
+          className={`flex items-center gap-2 pb-2 text-sm font-bold border-b-2 transition-all ${
+            tab === 'direct'
+              ? 'border-forest text-forest dark:border-harvest dark:text-harvest'
+              : 'border-transparent text-mute hover:text-ink'
+          }`}
+        >
+          <Zap size={16} />
+          <span>Direct Buyer Matches ({matches.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTab('pools')}
+          className={`flex items-center gap-2 pb-2 text-sm font-bold border-b-2 transition-all ${
+            tab === 'pools'
+              ? 'border-harvest text-harvest'
+              : 'border-transparent text-mute hover:text-ink'
+          }`}
+        >
+          <Users size={16} />
+          <span>FPO Supply Pools ({supplyPools.length})</span>
+        </button>
       </div>
 
-      {/* Multi-farmer consolidation results */}
-      {multiFarmerResults.length > 0 && (
-        <section>
-          <h3 className="mb-3 font-bold flex items-center gap-2">
-            <Users size={18} className="text-harvest" />
-            Consolidated Supply Matches
-          </h3>
-          <div className="space-y-4">
-            {multiFarmerResults.map((result, idx) => (
-              <MultiFarmerCard key={idx} result={result} />
-            ))}
+      {tab === 'direct' ? (
+        <>
+          {/* Multi-farmer supply matches */}
+          {multiFarmerResults.length > 0 && (
+            <section className="space-y-3">
+              <h3 className="font-bold flex items-center gap-2 text-harvest">
+                <Users size={18} />
+                Multi-Farmer Supply Pooling Matches
+              </h3>
+              <div className="space-y-4">
+                {multiFarmerResults.map((result, idx) => (
+                  <MultiFarmerCard key={idx} result={result} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Individual matches */}
+          <section className="space-y-4">
+            <h3 className="font-bold flex items-center gap-2 text-ink dark:text-night-text">
+              <Zap size={18} className="text-forest" />
+              Direct Trade Viability Rankings
+            </h3>
+
+            {matches.length === 0 ? (
+              <div className="rounded-mm border border-dashed border-line bg-earth/30 p-12 text-center dark:border-night-mute/20 dark:bg-night-lift/30">
+                <Target size={32} className="mx-auto text-mute" />
+                <div className="mt-3 text-sm font-medium text-mute">{t('common.noMatches', 'No matches found')}</div>
+                <div className="mt-1 text-xs text-mute">{t('matches.subtitle', 'Create listings and requirements, then run matching.')}</div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {matches.map((m) => (
+                  <MatchCard
+                    key={m._id}
+                    match={m}
+                    currentUser={user}
+                    onMakeOffer={setOfferMatchData}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      ) : (
+        /* Supply Pools Tab */
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold flex items-center gap-2 text-harvest">
+              <Users size={18} />
+              Digital Supply Aggregation Pools
+            </h3>
+            <span className="text-xs text-mute">Coordinated FPO Collection • Reduced Freight</span>
           </div>
+
+          {supplyPools.length === 0 ? (
+            <div className="rounded-mm border border-dashed border-line bg-earth/30 p-12 text-center dark:border-night-mute/20 dark:bg-night-lift/30">
+              <Users size={32} className="mx-auto text-mute" />
+              <div className="mt-3 text-sm font-medium text-mute">No active supply pools at the moment</div>
+              <div className="mt-1 text-xs text-mute">Supply pools are created when buyer requirements exceed individual farmer capacity.</div>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {supplyPools.map((pool) => (
+                <SupplyPoolCard
+                  key={pool._id}
+                  pool={pool}
+                  currentUser={user}
+                  onContributed={loadMatches}
+                />
+              ))}
+            </div>
+          )}
         </section>
       )}
 
-      {/* Individual matches */}
-      <section>
-        <h3 className="mb-3 font-bold flex items-center gap-2">
-          <Zap size={18} className="text-forest" />
-          {t('matches.title', 'Individual Matches')}
-        </h3>
-        {matches.length === 0 ? (
-          <div className="rounded-mm border border-dashed border-line bg-earth/30 p-12 text-center dark:border-night-mute/20 dark:bg-night-lift/30">
-            <Target size={32} className="mx-auto text-mute" />
-            <div className="mt-3 text-sm font-medium text-mute">{t('common.noMatches', 'No matches found')}</div>
-            <div className="mt-1 text-xs text-mute">{t('matches.subtitle', 'Create listings and requirements, then run matching.')}</div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {matches.map((m) => (
-              <MatchCard key={m._id} match={m} currentUser={user} onMakeOffer={setOfferMatch} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {offerMatch && (
-        <OfferModal match={offerMatch} currentUser={user} onClose={() => setOfferMatch(null)} />
+      {offerMatchData && (
+        <OfferModal
+          matchData={offerMatchData}
+          currentUser={user}
+          onClose={() => setOfferMatchData(null)}
+        />
       )}
     </div>
   );

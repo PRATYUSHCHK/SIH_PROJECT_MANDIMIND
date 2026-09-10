@@ -26,6 +26,11 @@ import {
   Receipt,
   ArrowRight,
   Sparkles,
+  Thermometer,
+  ShieldCheck,
+  AlertTriangle,
+  Users,
+  Box,
 } from 'lucide-react';
 
 export default function LogisticsPage() {
@@ -38,6 +43,8 @@ export default function LogisticsPage() {
   const [transactions, setTransactions] = useState([]);
   const [selectedTxId, setSelectedTxId] = useState(paramTxId || '');
   const [logistics, setLogistics] = useState(null);
+  const [vehicleType, setVehicleType] = useState('standard');
+  const [ambientTempC, setAmbientTempC] = useState(31);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
@@ -49,7 +56,6 @@ export default function LogisticsPage() {
     try {
       const { data } = await api.get('/marketplace/transactions');
       const allTx = data.transactions || [];
-      // Filter for accepted/in-progress/completed transactions
       const relevant = allTx.filter((t) =>
         ['accepted', 'logistics_planned', 'in_transit', 'delivered', 'completed'].includes(t.status)
       );
@@ -58,7 +64,7 @@ export default function LogisticsPage() {
       const targetId = paramTxId || (relevant.length > 0 ? relevant[0]._id : '');
       if (targetId) {
         setSelectedTxId(targetId);
-        await calculateRouteForTx(targetId);
+        await calculateRouteForTx(targetId, vehicleType);
       }
     } catch (e) {
       setErr(e.response?.data?.message || e.response?.data?.error || e.message);
@@ -66,13 +72,13 @@ export default function LogisticsPage() {
     setLoading(false);
   }
 
-  async function calculateRouteForTx(txId) {
+  async function calculateRouteForTx(txId, vType = vehicleType) {
     if (!txId) return;
     setCalculating(true);
     setErr('');
     try {
       const { data } = await api.get('/marketplace/logistics', {
-        params: { transactionId: txId },
+        params: { transactionId: txId, vehicleType: vType, ambientTempC },
       });
       setLogistics(data.logistics || data);
     } catch (e) {
@@ -84,7 +90,14 @@ export default function LogisticsPage() {
   function handleSelectTx(id) {
     setSelectedTxId(id);
     setSearchParams({ transactionId: id });
-    calculateRouteForTx(id);
+    calculateRouteForTx(id, vehicleType);
+  }
+
+  function handleVehicleChange(v) {
+    setVehicleType(v);
+    if (selectedTxId) {
+      calculateRouteForTx(selectedTxId, v);
+    }
   }
 
   async function advanceStatus(newStatus) {
@@ -107,25 +120,32 @@ export default function LogisticsPage() {
   if (loading) return <LoadingSkeleton />;
 
   const selectedTx = transactions.find((t) => t._id === selectedTxId);
-
-  // Correct pickup & delivery locations strictly from selected transaction
   const pickupLocation = selectedTx?.listing?.location || selectedTx?.farmer?.location || 'Nalgonda';
   const deliveryLocation =
     selectedTx?.requirement?.deliveryLocation ||
     selectedTx?.buyer?.location ||
     'Hyderabad';
 
+  const spoilage = logistics?.spoilageRisk;
+  const spoilageColor =
+    spoilage?.spoilageRiskScore === 'LOW' ? 'bg-forest/15 text-forest border-forest/30' :
+    spoilage?.spoilageRiskScore === 'MEDIUM' ? 'bg-harvest/15 text-harvest border-harvest/30' :
+    'bg-alert/15 text-alert border-alert/30';
+
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow={t('logistics.eyebrow', 'Logistics Optimization')}
-        title={t('logistics.title', 'Delivery Route & Cost Calculator')}
-        subtitle={t('logistics.subtitle', 'AI-optimized transport routes derived from accepted transactions with cost comparison.')}
+        eyebrow={t('logistics.eyebrow', 'Logistics Optimization & Cold-Chain Management')}
+        title={t('logistics.title', 'Delivery Route & Transit Spoilage Calculator')}
+        subtitle={t('logistics.subtitle', 'AI-optimized transport routes derived strictly from accepted transactions with cold-chain and spoilage tracking.')}
         actions={<DataStatusBadge status="SIMULATED" />}
       />
 
-      <div className="rounded-xl border border-harvest/30 bg-harvest/5 px-4 py-2 text-xs text-ink dark:bg-harvest/10">
-        <span className="font-bold">⚠ Note:</span> Route calculations use simulated distance estimates derived from the accepted transaction.
+      <div className="rounded-xl border border-harvest/30 bg-harvest/5 px-4 py-2.5 text-xs text-ink dark:bg-harvest/10 flex items-center justify-between">
+        <div>
+          <span className="font-bold">⚠ Transparency Notice:</span> MandiMind acts as a digital coordination layer. Transport companies are independent service providers, not produce owners.
+        </div>
+        <DataStatusBadge status="SIMULATED" />
       </div>
 
       {/* Transaction selection & Route configuration */}
@@ -156,7 +176,7 @@ export default function LogisticsPage() {
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line/60 pb-3 dark:border-night-mute/30">
             <div>
               <h3 className="font-bold text-ink dark:text-night-text">{t('logistics.selectTx', 'Select Accepted Transaction')}</h3>
-              <p className="text-xs text-mute">Logistics parameters are locked to the verified transaction record.</p>
+              <p className="text-xs text-mute">Derived strictly from verified agreement between producer and buyer.</p>
             </div>
             {selectedTx && (
               <span className="rounded-full bg-forest/10 px-3 py-1 text-xs font-extrabold uppercase text-forest dark:bg-harvest/15 dark:text-harvest">
@@ -165,33 +185,49 @@ export default function LogisticsPage() {
             )}
           </div>
 
-          <div>
-            <label className="block text-xs font-bold uppercase text-mute mb-1">{t('logistics.selectTx', 'Accepted Transaction')}</label>
-            <select
-              value={selectedTxId}
-              onChange={(e) => handleSelectTx(e.target.value)}
-              className="w-full rounded-lg border border-line px-3 py-2.5 text-sm dark:bg-night-lift dark:border-night-mute/20 font-medium"
-            >
-              {transactions.map((tx) => (
-                <option key={tx._id} value={tx._id}>
-                  {tx.commodityName} — {tx.quantityKg} kg | {tx.farmer?.name || 'Supplier'} → {tx.buyer?.name || 'Buyer'} (₹{tx.agreedPriceInr}/kg)
-                </option>
-              ))}
-            </select>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-bold uppercase text-mute mb-1">{t('logistics.selectTx', 'Accepted Transaction')}</label>
+              <select
+                value={selectedTxId}
+                onChange={(e) => handleSelectTx(e.target.value)}
+                className="w-full rounded-lg border border-line px-3 py-2.5 text-sm dark:bg-night-lift dark:border-night-mute/20 font-medium"
+              >
+                {transactions.map((tx) => (
+                  <option key={tx._id} value={tx._id}>
+                    {tx.commodityName} — {tx.quantityKg} kg | {tx.farmer?.name || 'Producer'} → {tx.buyer?.name || 'Buyer'} (₹{tx.agreedPriceInr}/kg)
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Vehicle Selection */}
+            <div>
+              <label className="block text-xs font-bold uppercase text-mute mb-1">Vehicle & Cold-Chain</label>
+              <select
+                value={vehicleType}
+                onChange={(e) => handleVehicleChange(e.target.value)}
+                className="w-full rounded-lg border border-line px-3 py-2.5 text-sm dark:bg-night-lift dark:border-night-mute/20 font-bold text-forest dark:text-harvest"
+              >
+                <option value="standard">Standard Truck (Ambient)</option>
+                <option value="ventilated">Ventilated Agri-Crate Van</option>
+                <option value="refrigerated">❄️ Refrigerated (Cold-Chain)</option>
+              </select>
+            </div>
           </div>
 
-          {/* Unified Transaction Details */}
+          {/* Transaction parties & locations */}
           {selectedTx && (
             <div className="grid gap-4 sm:grid-cols-2 pt-2">
               <div className="rounded-lg border border-line/70 bg-earth/40 p-4 dark:border-night-mute/30 dark:bg-night-lift/30">
                 <div className="text-[10px] font-extrabold uppercase tracking-wider text-forest dark:text-harvest">
-                  {t('logistics.pickup', 'Pickup Listing (Supplier)')}
+                  {t('logistics.pickup', 'Pickup Listing (Producer)')}
                 </div>
                 <div className="mt-2 font-bold text-ink dark:text-night-text">
                   {selectedTx.commodityName} — {selectedTx.quantityKg} kg — {pickupLocation}
                 </div>
                 <div className="mt-1 text-xs text-mute">
-                  {t('auth.farmerDemo', 'Supplier')}: {selectedTx.farmer?.name || 'Farmer'} • ₹{selectedTx.agreedPriceInr}/kg
+                  {t('auth.farmerDemo', 'Producer')}: {selectedTx.farmer?.name || 'Farmer'} • ₹{selectedTx.agreedPriceInr}/kg agreed price
                 </div>
               </div>
 
@@ -203,7 +239,7 @@ export default function LogisticsPage() {
                   {selectedTx.commodityName} — {selectedTx.quantityKg} kg — {deliveryLocation}
                 </div>
                 <div className="mt-1 text-xs text-mute">
-                  {t('auth.buyerDemo', 'Buyer')}: {selectedTx.buyer?.name || 'Buyer'} • {t('transactions.totalValue', 'Total')} ₹{selectedTx.totalValueInr?.toLocaleString('en-IN')}
+                  {t('auth.buyerDemo', 'Buyer')}: {selectedTx.buyer?.name || 'Direct Buyer'} • ₹{selectedTx.totalValueInr?.toLocaleString('en-IN')} total order
                 </div>
               </div>
             </div>
@@ -224,22 +260,81 @@ export default function LogisticsPage() {
                   {advancing ? t('common.loading', 'Saving...') : t('logistics.confirmPlan', 'Confirm Logistics Plan')}
                 </button>
               )}
+              {selectedTx?.status === 'logistics_planned' && (
+                <button
+                  onClick={() => advanceStatus('in_transit')}
+                  disabled={advancing}
+                  className="flex items-center gap-1.5 rounded-lg bg-harvest px-4 py-2 text-xs font-bold text-ink hover:bg-harvest/90 transition-colors"
+                >
+                  <Truck size={14} />
+                  Dispatch Vehicle (Mark In Transit)
+                </button>
+              )}
+              {selectedTx?.status === 'in_transit' && (
+                <button
+                  onClick={() => advanceStatus('delivered')}
+                  disabled={advancing}
+                  className="flex items-center gap-1.5 rounded-lg bg-forest px-4 py-2 text-xs font-bold text-white hover:bg-forest-deep transition-colors"
+                >
+                  <Check size={14} />
+                  Mark Produce Delivered
+                </button>
+              )}
               <button
-                onClick={() => calculateRouteForTx(selectedTxId)}
+                onClick={() => calculateRouteForTx(selectedTxId, vehicleType)}
                 disabled={!selectedTxId || calculating}
                 className="flex items-center gap-2 rounded-lg bg-forest px-4 py-2 text-xs font-bold text-white hover:bg-forest-deep disabled:opacity-50 transition-colors"
               >
                 <Navigation size={14} />
-                {calculating ? 'Calculating...' : 'Calculate Route'}
+                {calculating ? 'Calculating...' : 'Recalculate Route'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Logistics results */}
+      {/* Logistics & Spoilage Results */}
       {logistics && selectedTx && (
         <>
+          {/* Spoilage Risk Advisory Banner */}
+          {spoilage && (
+            <div className="rounded-xl border border-line bg-white p-5 shadow-card dark:border-night-mute/20 dark:bg-night-card space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Thermometer size={18} className="text-forest dark:text-harvest" />
+                  <h4 className="font-bold text-ink dark:text-night-text">Transit Perishability & Spoilage Intelligence</h4>
+                </div>
+                <div className={`flex items-center gap-1 rounded-full border px-3 py-0.5 text-xs font-bold ${spoilageColor}`}>
+                  {spoilage.spoilageRiskScore} RISK ({spoilage.spoilagePercent}% Est. Decay)
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3 text-xs">
+                <div className="rounded-lg bg-earth/40 p-3 dark:bg-night-lift/30">
+                  <div className="text-mute uppercase text-[10px]">Commodity Perishability</div>
+                  <div className="mt-1 font-bold text-ink dark:text-night-text">{spoilage.perishability} Perishable</div>
+                </div>
+                <div className="rounded-lg bg-earth/40 p-3 dark:bg-night-lift/30">
+                  <div className="text-mute uppercase text-[10px]">Safe Transit Window</div>
+                  <div className="mt-1 font-bold text-ink dark:text-night-text">Max {spoilage.maxSafeTransitHours} Hours ({vehicleType})</div>
+                </div>
+                <div className="rounded-lg bg-earth/40 p-3 dark:bg-night-lift/30">
+                  <div className="text-mute uppercase text-[10px]">Estimated Transit Duration</div>
+                  <div className="mt-1 font-bold text-ink dark:text-night-text">{Math.round(logistics.etaMin / 60)} Hours ({logistics.distanceKm} km)</div>
+                </div>
+              </div>
+
+              {spoilage.spoilageRiskScore === 'HIGH' && vehicleType !== 'refrigerated' && (
+                <div className="rounded-lg bg-alert/10 p-3 text-xs text-alert flex items-start gap-2">
+                  <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                  <div>
+                    <strong>High Transit Spoilage Warning:</strong> Ambient temperature and transit distance create elevated spoilage risk. Switch to Refrigerated Cold-Chain to protect farm produce quality.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Delivery Plan Card */}
           <div className="rounded-mm border border-line bg-white p-6 shadow-card dark:border-night-mute/20 dark:bg-night-card">
             <div className="flex items-center gap-2 mb-4">
@@ -308,7 +403,7 @@ export default function LogisticsPage() {
             <div className="rounded-mm border border-line bg-white p-6 shadow-card dark:border-night-mute/20 dark:bg-night-card">
               <h3 className="mb-4 font-bold flex items-center gap-2 text-ink dark:text-night-text">
                 <Route size={18} className="text-forest" />
-                AI Recommended Routes
+                AI Recommended Routes & Mode Comparison
               </h3>
               <div className="space-y-3">
                 {logistics.routes.map((route, idx) => (
@@ -336,13 +431,13 @@ export default function LogisticsPage() {
                           )}
                         </div>
                         <div className="text-xs text-mute">
-                          {route.distanceKm} km • {route.etaMin} min
+                          {route.distanceKm} km • {route.etaMin} min • {route.vehicleType || 'standard'}
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-6">
                       <div className="text-right">
-                        <div className="text-[10px] uppercase text-mute">Transport</div>
+                        <div className="text-[10px] uppercase text-mute">Transport Cost</div>
                         <div className="font-bold tabular">₹{route.transportCostInr?.toLocaleString('en-IN')}</div>
                       </div>
                       {route.saving > 0 && (
@@ -375,7 +470,7 @@ export default function LogisticsPage() {
                 pathOptions={{ color: '#166534', fillColor: '#166534', fillOpacity: 0.8 }}
               >
                 <Popup>
-                  <strong>Pickup:</strong> {logistics.pickup.location}
+                  <strong>Pickup Point (Producer):</strong> {logistics.pickup.location}
                   <br />
                   {selectedTx.commodityName} — {selectedTx.quantityKg} kg
                 </Popup>
@@ -386,7 +481,7 @@ export default function LogisticsPage() {
                 pathOptions={{ color: '#EAB308', fillColor: '#EAB308', fillOpacity: 0.8 }}
               >
                 <Popup>
-                  <strong>Delivery:</strong> {logistics.delivery.location}
+                  <strong>Delivery Destination (Buyer):</strong> {logistics.delivery.location}
                   <br />
                   {selectedTx.commodityName} — {selectedTx.quantityKg} kg
                 </Popup>
@@ -399,10 +494,6 @@ export default function LogisticsPage() {
                 pathOptions={{ color: '#166534', weight: 3, dashArray: '8 8' }}
               />
             </MapContainer>
-          </div>
-
-          <div className="text-xs text-mute">
-            <DataStatusBadge status="SIMULATED" /> All route and cost calculations are simulated estimates based on the accepted transaction.
           </div>
         </>
       )}

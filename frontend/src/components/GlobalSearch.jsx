@@ -127,6 +127,9 @@ export function GlobalSearch() {
     if (data.requirements?.length) {
       data.requirements.forEach((r) => list.push({ type: 'requirement', item: r, url: '/marketplace' }));
     }
+    if (data.supplyPools?.length) {
+      data.supplyPools.forEach((pool) => list.push({ type: 'supplyPool', item: pool, url: '/marketplace' }));
+    }
     if (data.transactions?.length) {
       data.transactions.forEach((tx) => list.push({ type: 'transaction', item: tx, url: '/transactions' }));
     }
@@ -421,6 +424,54 @@ export function GlobalSearch() {
                           <div className="text-right">
                             <div className="text-xs font-bold text-info">Max ₹{item.maximumPriceInr}/kg</div>
                             <span className="text-[10px] uppercase font-bold text-mute">Grade {item.qualityGrade}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* 3.5 SUPPLY POOLS (Aggregation) */}
+              {data.supplyPools && data.supplyPools.length > 0 && (
+                <div className="p-2">
+                  <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider text-mute flex items-center gap-1">
+                    <Users size={11} className="text-harvest" />
+                    <span>FPO Supply Pools ({data.counts?.supplyPools || data.supplyPools.length})</span>
+                  </div>
+                  <div className="space-y-1">
+                    {data.supplyPools.map((pool) => {
+                      const idx = currentGlobalIdx++;
+                      const isSelected = selectedIndex === idx;
+                      return (
+                        <button
+                          key={pool._id}
+                          type="button"
+                          onClick={() => handleSelectResult({ type: 'supplyPool', item: pool, url: '/marketplace' })}
+                          className={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-left transition-colors ${
+                            isSelected
+                              ? 'bg-forest/10 text-forest dark:bg-harvest/15 dark:text-harvest'
+                              : 'hover:bg-earth dark:hover:bg-night-lift text-ink dark:text-night-text'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className="grid h-8 w-8 place-items-center rounded-lg bg-harvest/15 text-harvest font-bold">
+                              <Users size={15} />
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold">
+                                {pool.commodityName} Pool — {pool.collectedQuantityKg || 0}/{pool.targetQuantityKg} kg
+                              </div>
+                              <div className="text-[11px] text-mute flex items-center gap-1.5">
+                                <span>{pool.destinationLocation}</span>
+                                <span>•</span>
+                                <span>{pool.contributors?.length || 0} Farmers</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs font-bold text-forest dark:text-harvest">₹{pool.targetPriceInr}/kg</div>
+                            <span className="text-[10px] uppercase font-bold text-forest">{pool.status?.replace('_', ' ')}</span>
                           </div>
                         </button>
                       );

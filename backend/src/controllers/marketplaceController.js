@@ -11,34 +11,29 @@ import {
   MarketArrival,
   WeatherRecord,
   User,
+  SupplyPool,
 } from '../models/index.js';
 
 import { mlClient } from '../services/mlClient.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { dataBadge } from '../services/dataStatus.js';
 import { AppError } from '../middleware/error.js';
+import {
+  calculateTradeViability,
+  calculateLogisticsCost,
+  evaluateSpoilageRisk,
+  getCommodityProfile,
+  haversineKm,
+  findConsolidationOpportunities,
+} from '../services/tradeViabilityService.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
-function haversineKm(lat1, lng1, lat2, lng2) {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 function calcTransportCost(distanceKm, quantityKg) {
-  // Simulated: base ₹12/km + ₹0.80/kg handling
-  const perKm = 12;
-  const perKg = 0.8;
-  return Number((distanceKm * perKm + quantityKg * perKg).toFixed(2));
+  return calculateLogisticsCost({ distanceKm, quantityKg }).totalTransportCostInr;
 }
 
 function calcETA(distanceKm) {
-  // Simulated: average 40 km/h in rural/urban mix
   return Math.round((distanceKm / 40) * 60);
 }
 
@@ -54,7 +49,7 @@ async function getCommodityPriceInfo(commodityId) {
   const latest = prices.at(-1);
   const prev = prices.at(-2);
   const avgPrice = prices.length ? Number((prices.reduce((s, p) => s + p.modalPriceInr, 0) / prices.length).toFixed(2)) : 0;
-  const avgArrival = arrivals.length ? Math.round(arrivals.reduce((s, a) => s + a.quantityKg, 0) / arrivals.length) : 0;
+  const avgArrival = arrivals.length ? Math.round(arrivals.reduce((s, a) => s + a.quantityKg) / arrivals.length) : 0;
   const trend = latest && prev ? (latest.modalPriceInr > prev.modalPriceInr ? 'up' : 'down') : 'stable';
   return {
     currentPrice: latest?.modalPriceInr || 0,
@@ -109,7 +104,7 @@ async function computeMatchScore(listing, requirement) {
     checks.commodityMatch = true;
     reasons.push('✓ Commodity matches');
   } else {
-    return { score: 0, reasons: ['✗ Commodity does not match'], checks };
+    return { score: 0, reasons: ['✗ Commodity does not match'], checks, viability: null };
   }
 
   // Quality match (20 pts)
@@ -142,34 +137,54 @@ async function computeMatchScore(listing, requirement) {
     }
   }
 
-  // Location match (15 pts)
+  // Location & Viability match (15 pts)
   const distance = haversineKm(listing.lat || 17.385, listing.lng || 78.487, requirement.deliveryLat || 17.385, requirement.deliveryLng || 78.487);
-  if (distance < 30) {
+  if (distance < 50) {
     score += 15;
     checks.locationMatch = true;
-    reasons.push('✓ Location is nearby');
-  } else if (distance < 100) {
-    score += 10;
+    reasons.push(`✓ Local direct delivery (${distance} km)`);
+  } else if (distance < 150) {
+    score += 12;
     checks.locationMatch = true;
-    reasons.push('✓ Location within reasonable distance');
-  } else if (distance < 250) {
-    score += 5;
-    reasons.push('~ Moderate distance');
+    reasons.push(`✓ Regional delivery (${distance} km)`);
+  } else if (distance < 350) {
+    score += 6;
+    reasons.push(`~ Moderate transit distance (${distance} km)`);
   } else {
-    reasons.push('✗ Far from delivery location');
+    reasons.push(`✗ Long distance transit (${distance} km)`);
   }
 
   // Quantity match (10 pts)
-  const listingAvailable = listing.availableQuantityKg || listing.quantityKg;
+  const listingAvailable = listing.availableQuantityKg != null ? listing.availableQuantityKg : listing.quantityKg;
   if (listingAvailable >= requirement.quantityKg) {
     score += 10;
     checks.quantityMatch = true;
-    reasons.push('✓ Quantity can fully fulfill requirement');
+    reasons.push('✓ Single supplier full fulfillment');
   } else if (listingAvailable >= requirement.quantityKg * 0.5) {
-    score += 5;
-    reasons.push('~ Partial quantity available');
+    score += 6;
+    reasons.push('~ Partial fulfillment available');
   } else {
-    reasons.push('✗ Insufficient quantity');
+    reasons.push('~ Supply pooling recommended for full requirement');
+  }
+
+  // Trade Viability & Spoilage Evaluation
+  const viability = calculateTradeViability({
+    listing,
+    requirement,
+    grossPriceInr: requirement.maximumPriceInr,
+    quantityKg: Math.min(listingAvailable, requirement.quantityKg),
+  });
+
+  if (viability.spoilage.spoilageRiskScore === 'LOW') {
+    reasons.push('✓ Low transit spoilage risk');
+  } else if (viability.spoilage.spoilageRiskScore === 'HIGH') {
+    reasons.push('⚠️ High transit spoilage risk under standard transport');
+  }
+
+  if (viability.isRecommended) {
+    reasons.push(`✓ Estimated Net Realization: ₹${viability.netFarmerRealizationInr}/kg`);
+  } else {
+    reasons.push(`⚠️ Low Net Realization: ₹${viability.netFarmerRealizationInr}/kg after transport & spoilage`);
   }
 
   // Demand trend bonus (5 pts)
@@ -179,14 +194,12 @@ async function computeMatchScore(listing, requirement) {
       score += 5;
       checks.demandMatch = true;
       reasons.push('✓ Demand trend is increasing');
-    } else if (info && info.trend === 'down') {
-      reasons.push('~ Demand trend is softening');
     }
   } catch {
-    // ML service may be down
+    // ignore
   }
 
-  return { score: Math.min(100, score), reasons, checks };
+  return { score: Math.min(100, score), reasons, checks, viability };
 }
 
 // ─── PRODUCE LISTINGS ─────────────────────────────────────────────────
@@ -195,7 +208,7 @@ export const createListing = asyncHandler(async (req, res) => {
   const {
     commodity, commodityName, quantityKg, unit, qualityGrade,
     harvestDate, expectedPriceInr, minimumPriceInr, location,
-    lat, lng, availableFrom, deliveryPreference,
+    lat, lng, availableFrom, deliveryPreference, tradePreference, packagingType,
   } = req.body;
 
   const commodityDoc = commodity ? await Commodity.findById(commodity) : null;
@@ -207,14 +220,16 @@ export const createListing = asyncHandler(async (req, res) => {
     quantityKg,
     unit: unit || 'kg',
     qualityGrade: qualityGrade || 'A',
-    harvestDate,
+    harvestDate: harvestDate || new Date(),
     expectedPriceInr,
     minimumPriceInr: minimumPriceInr || expectedPriceInr * 0.9,
     location: location || req.user.location,
-    lat: lat || 17.385,
-    lng: lng || 78.487,
+    lat: lat || 17.0575,
+    lng: lng || 79.2671,
     availableFrom: availableFrom || new Date(),
     deliveryPreference: deliveryPreference || 'both',
+    tradePreference: tradePreference || 'any',
+    packagingType: packagingType || 'standard_crate',
     availableQuantityKg: quantityKg,
     dataStatus: 'SIMULATED',
   });
@@ -260,7 +275,7 @@ export const createRequirement = asyncHandler(async (req, res) => {
   const {
     commodity, commodityName, quantityKg, qualityGrade,
     maximumPriceInr, deliveryLocation, deliveryLat, deliveryLng,
-    requiredByDate,
+    requiredByDate, buyerType, allowPoolAggregation, requiredVehicleType,
   } = req.body;
 
   const commodityDoc = commodity ? await Commodity.findById(commodity) : null;
@@ -275,9 +290,37 @@ export const createRequirement = asyncHandler(async (req, res) => {
     deliveryLocation: deliveryLocation || req.user.location,
     deliveryLat: deliveryLat || 17.385,
     deliveryLng: deliveryLng || 78.487,
-    requiredByDate,
+    requiredByDate: requiredByDate || new Date(Date.now() + 3 * 86400000),
+    buyerType: buyerType || 'retailer',
+    allowPoolAggregation: allowPoolAggregation !== undefined ? allowPoolAggregation : true,
+    requiredVehicleType: requiredVehicleType || 'any',
     dataStatus: 'SIMULATED',
   });
+
+  // Auto-initialize a supply pool if the requirement is large (> 500kg) and allows pooling
+  if (quantityKg >= 500 && (allowPoolAggregation !== false)) {
+    await SupplyPool.create({
+      buyerRequirement: requirement._id,
+      commodity: requirement.commodity,
+      commodityName: requirement.commodityName,
+      qualityGrade: requirement.qualityGrade,
+      targetQuantityKg: requirement.quantityKg,
+      collectedQuantityKg: 0,
+      targetPriceInr: requirement.maximumPriceInr,
+      averageFarmerPriceInr: requirement.maximumPriceInr,
+      destinationLocation: requirement.deliveryLocation,
+      destinationLat: requirement.deliveryLat,
+      destinationLng: requirement.deliveryLng,
+      deliveryDeadline: requirement.requiredByDate,
+      status: 'open',
+      intermediaryReduction: {
+        commercialLayersCount: 0,
+        serviceProviders: ['Direct Transport', 'FPO Collection Hub'],
+        estimatedSavingsPct: 21.0,
+      },
+      dataStatus: 'SIMULATED',
+    });
+  }
 
   res.status(201).json({ dataStatus: 'SIMULATED', requirement });
 });
@@ -302,37 +345,34 @@ export const getMyRequirements = asyncHandler(async (req, res) => {
   res.json({ dataStatus: 'SIMULATED', requirements });
 });
 
-// ─── AI MATCHING ──────────────────────────────────────────────────────
+// ─── AI MATCHING & TRADE VIABILITY ────────────────────────────────────
 
 export const runMatching = asyncHandler(async (req, res) => {
   const { listingId, requirementId } = req.query;
 
   let matches = [];
-  let requirements = [];//fixed
+  let requirements = [];
 
   if (listingId) {
-    // Find matching requirements for a listing
     const listing = await ProduceListing.findById(listingId);
     if (!listing) throw new AppError('Listing not found', 404);
-    requirements = await BuyerRequirement.find({ //fixed
+    requirements = await BuyerRequirement.find({
       status: { $in: ['active', 'partially_fulfilled'] },
       $or: [
-        { commodityName: listing.commodityName },
+        { commodityName: new RegExp(listing.commodityName, 'i') },
         { commodity: listing.commodity },
       ],
     }).populate('buyer', 'name location avatarInitials');
 
-    for (const req of requirements) {
-      const existing = await MarketplaceMatch.findOne({ listing: listing._id, requirement: req._id });
-      if (existing) {
-        matches.push(existing);
-        continue;
-      }
-      const result = await computeMatchScore(listing, req);
+    for (const r of requirements) {
+      let match = await MarketplaceMatch.findOne({ listing: listing._id, requirement: r._id });
+      const result = await computeMatchScore(listing, r);
       const fairPriceInfo = await computeAIFairPrice(listing.commodity, listing.qualityGrade, listing.location, listing.quantityKg);
-      const match = await MarketplaceMatch.create({
+      const v = result.viability || calculateTradeViability({ listing, requirement: r });
+
+      const matchData = {
         listing: listing._id,
-        requirement: req._id,
+        requirement: r._id,
         matchScore: result.score,
         ...result.checks,
         matchReasons: result.reasons,
@@ -340,32 +380,52 @@ export const runMatching = asyncHandler(async (req, res) => {
         aiPriceRange: fairPriceInfo.range,
         dealVerdict: result.score >= 75 ? 'FAIR_DEAL' : result.score >= 50 ? 'GOOD_FOR_FARMER' : 'UNDERPRICED',
         demandTrend: fairPriceInfo.marketTrend,
+        tradeViabilityScore: v.viabilityScore,
+        netFarmerRealizationInr: v.netFarmerRealizationInr,
+        transportCostPerKg: v.logistics.transportCostPerKg,
+        distanceKm: v.distanceKm,
+        estimatedTravelTimeMin: v.etaMinutes,
+        packagingCostPerKg: v.priceWaterfall.packagingCostPerKg,
+        handlingCostPerKg: v.priceWaterfall.handlingCostPerKg,
+        spoilageRiskScore: v.spoilage.spoilageRiskScore,
+        spoilageProbability: v.spoilage.spoilageProbability,
+        expectedSpoilageLossInr: v.priceWaterfall.spoilageRiskLossPerKg,
+        recommendedVehicleType: v.spoilage.recommendedVehicleType,
+        isRecommended: v.isRecommended,
+        warningReason: v.warningReason,
+        advisoryPills: v.advisoryPills,
+        priceWaterfall: v.priceWaterfall,
+        intermediaryReduction: v.intermediaryReduction,
         dataStatus: 'AI_FORECAST',
-      });
+      };
+
+      if (match) {
+        Object.assign(match, matchData);
+        await match.save();
+      } else {
+        match = await MarketplaceMatch.create(matchData);
+      }
       matches.push(match);
     }
   } else if (requirementId) {
-    // Find matching listings for a requirement
     const requirement = await BuyerRequirement.findById(requirementId);
-    requirements = [requirement];//fixed
     if (!requirement) throw new AppError('Requirement not found', 404);
+    requirements = [requirement];
     const listings = await ProduceListing.find({
       status: 'active',
       $or: [
-        { commodityName: requirement.commodityName },
+        { commodityName: new RegExp(requirement.commodityName, 'i') },
         { commodity: requirement.commodity },
       ],
     }).populate('farmer', 'name location avatarInitials');
 
     for (const listing of listings) {
-      const existing = await MarketplaceMatch.findOne({ listing: listing._id, requirement: requirement._id });
-      if (existing) {
-        matches.push(existing);
-        continue;
-      }
+      let match = await MarketplaceMatch.findOne({ listing: listing._id, requirement: requirement._id });
       const result = await computeMatchScore(listing, requirement);
       const fairPriceInfo = await computeAIFairPrice(listing.commodity, listing.qualityGrade, listing.location, listing.quantityKg);
-      const match = await MarketplaceMatch.create({
+      const v = result.viability || calculateTradeViability({ listing, requirement });
+
+      const matchData = {
         listing: listing._id,
         requirement: requirement._id,
         matchScore: result.score,
@@ -375,29 +435,49 @@ export const runMatching = asyncHandler(async (req, res) => {
         aiPriceRange: fairPriceInfo.range,
         dealVerdict: result.score >= 75 ? 'FAIR_DEAL' : result.score >= 50 ? 'GOOD_FOR_FARMER' : 'UNDERPRICED',
         demandTrend: fairPriceInfo.marketTrend,
+        tradeViabilityScore: v.viabilityScore,
+        netFarmerRealizationInr: v.netFarmerRealizationInr,
+        transportCostPerKg: v.logistics.transportCostPerKg,
+        distanceKm: v.distanceKm,
+        estimatedTravelTimeMin: v.etaMinutes,
+        packagingCostPerKg: v.priceWaterfall.packagingCostPerKg,
+        handlingCostPerKg: v.priceWaterfall.handlingCostPerKg,
+        spoilageRiskScore: v.spoilage.spoilageRiskScore,
+        spoilageProbability: v.spoilage.spoilageProbability,
+        expectedSpoilageLossInr: v.priceWaterfall.spoilageRiskLossPerKg,
+        recommendedVehicleType: v.spoilage.recommendedVehicleType,
+        isRecommended: v.isRecommended,
+        warningReason: v.warningReason,
+        advisoryPills: v.advisoryPills,
+        priceWaterfall: v.priceWaterfall,
+        intermediaryReduction: v.intermediaryReduction,
         dataStatus: 'AI_FORECAST',
-      });
+      };
+
+      if (match) {
+        Object.assign(match, matchData);
+        await match.save();
+      } else {
+        match = await MarketplaceMatch.create(matchData);
+      }
       matches.push(match);
     }
   } else {
-    // Global matching: match all active listings against all active requirements
+    // Global matching
     const listings = await ProduceListing.find({ status: 'active' }).populate('farmer', 'name location avatarInitials');
     requirements = await BuyerRequirement.find({ status: { $in: ['active', 'partially_fulfilled'] } })
       .populate('buyer', 'name location avatarInitials');
 
     for (const listing of listings) {
-      for (const req of requirements) {
-        const existing = await MarketplaceMatch.findOne({ listing: listing._id, requirement: req._id });
-        if (existing) {
-          matches.push(existing);
-          continue;
-        }
-        const result = await computeMatchScore(listing, req);
+      for (const reqDoc of requirements) {
+        const result = await computeMatchScore(listing, reqDoc);
         if (result.score > 0) {
           const fairPriceInfo = await computeAIFairPrice(listing.commodity, listing.qualityGrade, listing.location, listing.quantityKg);
-          const match = await MarketplaceMatch.create({
+          const v = result.viability || calculateTradeViability({ listing, requirement: reqDoc });
+
+          const matchData = {
             listing: listing._id,
-            requirement: req._id,
+            requirement: reqDoc._id,
             matchScore: result.score,
             ...result.checks,
             matchReasons: result.reasons,
@@ -405,8 +485,32 @@ export const runMatching = asyncHandler(async (req, res) => {
             aiPriceRange: fairPriceInfo.range,
             dealVerdict: result.score >= 75 ? 'FAIR_DEAL' : result.score >= 50 ? 'GOOD_FOR_FARMER' : 'UNDERPRICED',
             demandTrend: fairPriceInfo.marketTrend,
+            tradeViabilityScore: v.viabilityScore,
+            netFarmerRealizationInr: v.netFarmerRealizationInr,
+            transportCostPerKg: v.logistics.transportCostPerKg,
+            distanceKm: v.distanceKm,
+            estimatedTravelTimeMin: v.etaMinutes,
+            packagingCostPerKg: v.priceWaterfall.packagingCostPerKg,
+            handlingCostPerKg: v.priceWaterfall.handlingCostPerKg,
+            spoilageRiskScore: v.spoilage.spoilageRiskScore,
+            spoilageProbability: v.spoilage.spoilageProbability,
+            expectedSpoilageLossInr: v.priceWaterfall.spoilageRiskLossPerKg,
+            recommendedVehicleType: v.spoilage.recommendedVehicleType,
+            isRecommended: v.isRecommended,
+            warningReason: v.warningReason,
+            advisoryPills: v.advisoryPills,
+            priceWaterfall: v.priceWaterfall,
+            intermediaryReduction: v.intermediaryReduction,
             dataStatus: 'AI_FORECAST',
-          });
+          };
+
+          let match = await MarketplaceMatch.findOne({ listing: listing._id, requirement: reqDoc._id });
+          if (match) {
+            Object.assign(match, matchData);
+            await match.save();
+          } else {
+            match = await MarketplaceMatch.create(matchData);
+          }
           matches.push(match);
         }
       }
@@ -418,42 +522,56 @@ export const runMatching = asyncHandler(async (req, res) => {
     _id: { $in: matches.map((m) => m._id) },
   })
     .populate({ path: 'listing', populate: { path: 'farmer', select: 'name location avatarInitials' } })
-    .populate({ path: 'requirement', populate: { path: 'buyer', select: 'name location avatarInitials' } })
-    .sort({ matchScore: -1 });
+    .populate({ path: 'requirement', populate: { path: 'buyer', select: 'name location avatarInitials buyerType' } })
+    // Sort by Net Farmer Realization and Viability Score (NOT gross price alone)
+    .sort({ isRecommended: -1, netFarmerRealizationInr: -1, matchScore: -1 });
 
-  // Multi-farmer consolidation: for requirements where single listing is insufficient
+  // Supply Pooling & Multi-Farmer Consolidation Analysis
   const multiFarmerResults = [];
-  for (const req of requirements || []) {
-    const reqDoc = await BuyerRequirement.findById(req._id || req);
+  for (const r of requirements || []) {
+    const reqDoc = await BuyerRequirement.findById(r._id || r);
     if (!reqDoc) continue;
+
     const matchedListings = matches
       .filter((m) => (m.requirement?._id || m.requirement).toString() === reqDoc._id.toString())
-      .sort((a, b) => b.matchScore - a.matchScore);
+      .sort((a, b) => (b.netFarmerRealizationInr || 0) - (a.netFarmerRealizationInr || 0));
 
     let totalAvailable = 0;
     const selectedListings = [];
     for (const m of matchedListings) {
       const list = await ProduceListing.findById(m.listing?._id || m.listing);
       if (list && totalAvailable < reqDoc.quantityKg) {
-        totalAvailable += list.availableQuantityKg;
+        totalAvailable += (list.availableQuantityKg != null ? list.availableQuantityKg : list.quantityKg);
         selectedListings.push({ listing: list, match: m });
       }
     }
+
     if (totalAvailable >= reqDoc.quantityKg && matchedListings.length > 1) {
+      const allActiveLists = selectedListings.map((s) => s.listing);
+      const consolidationOpts = findConsolidationOpportunities(allActiveLists, reqDoc);
+
       multiFarmerResults.push({
         requirement: reqDoc,
         suppliers: selectedListings,
         totalSupplyKg: totalAvailable,
         consolidated: true,
+        consolidationOptions: consolidationOpts,
       });
     }
   }
+
+  // Fetch active supply pools
+  const supplyPools = await SupplyPool.find({ status: { $in: ['open', 'target_reached'] } })
+    .populate('buyerRequirement')
+    .populate('contributors.farmer', 'name location')
+    .sort({ createdAt: -1 });
 
   res.json({
     dataStatus: 'AI_FORECAST',
     badge: dataBadge(),
     matches,
     multiFarmerResults,
+    supplyPools,
     totalMatches: matches.length,
   });
 });
@@ -466,6 +584,171 @@ export const getMatchById = asyncHandler(async (req, res) => {
   res.json({ dataStatus: 'AI_FORECAST', match });
 });
 
+// ─── PRE-TRADE VIABILITY ANALYSIS ─────────────────────────────────────
+
+export const getTradeAnalysis = asyncHandler(async (req, res) => {
+  const { listingId, requirementId, grossPriceInr, quantityKg, vehicleType, ambientTempC } = req.body;
+
+  const listing = listingId ? await ProduceListing.findById(listingId) : null;
+  const requirement = requirementId ? await BuyerRequirement.findById(requirementId) : null;
+
+  const viability = calculateTradeViability({
+    listing,
+    requirement,
+    grossPriceInr: Number(grossPriceInr) || requirement?.maximumPriceInr || listing?.expectedPriceInr || 28,
+    quantityKg: Number(quantityKg) || listing?.quantityKg || requirement?.quantityKg || 100,
+    vehicleType: vehicleType || 'standard',
+    ambientTempC: Number(ambientTempC) || 31,
+  });
+
+  res.json({
+    dataStatus: 'AI_FORECAST',
+    badge: dataBadge(),
+    viability,
+  });
+});
+
+// ─── SUPPLY POOLING APIS ──────────────────────────────────────────────
+
+export const createSupplyPool = asyncHandler(async (req, res) => {
+  const {
+    buyerRequirementId,
+    commodityId,
+    commodityName,
+    targetQuantityKg,
+    targetPriceInr,
+    destinationLocation,
+    destinationLat,
+    destinationLng,
+    deliveryDeadline,
+    notes,
+  } = req.body;
+
+  const pool = await SupplyPool.create({
+    buyerRequirement: buyerRequirementId,
+    commodity: commodityId,
+    commodityName,
+    targetQuantityKg: Number(targetQuantityKg),
+    collectedQuantityKg: 0,
+    targetPriceInr: Number(targetPriceInr),
+    averageFarmerPriceInr: Number(targetPriceInr),
+    destinationLocation,
+    destinationLat: destinationLat || 17.385,
+    destinationLng: destinationLng || 78.487,
+    deliveryDeadline,
+    notes: notes || '',
+    fpoCoordinator: req.user._id,
+    intermediaryReduction: {
+      commercialLayersCount: 0,
+      serviceProviders: ['Direct Transport', 'FPO Collection Hub'],
+      estimatedSavingsPct: 22.0,
+    },
+    dataStatus: 'SIMULATED',
+  });
+
+  res.status(201).json({ dataStatus: 'SIMULATED', pool });
+});
+
+export const getSupplyPools = asyncHandler(async (req, res) => {
+  const filter = {};
+  if (req.query.commodity) filter.commodityName = new RegExp(req.query.commodity, 'i');
+  if (req.query.status) filter.status = req.query.status;
+
+  const pools = await SupplyPool.find(filter)
+    .populate('buyerRequirement')
+    .populate('commodity', 'name slug perishability')
+    .populate('contributors.farmer', 'name location')
+    .populate('fpoCoordinator', 'name location')
+    .sort({ createdAt: -1 });
+
+  res.json({ dataStatus: 'SIMULATED', badge: dataBadge(), pools });
+});
+
+export const getSupplyPoolById = asyncHandler(async (req, res) => {
+  const pool = await SupplyPool.findById(req.params.id)
+    .populate('buyerRequirement')
+    .populate('commodity', 'name slug perishability')
+    .populate('contributors.farmer', 'name location')
+    .populate('contributors.listing');
+
+  if (!pool) throw new AppError('Supply pool not found', 404);
+  res.json({ dataStatus: 'SIMULATED', pool });
+});
+
+export const contributeToSupplyPool = asyncHandler(async (req, res) => {
+  const { quantityKg, listingId, offeredPriceInr } = req.body;
+  const pool = await SupplyPool.findById(req.params.id);
+  if (!pool) throw new AppError('Supply pool not found', 404);
+  if (pool.status !== 'open' && pool.status !== 'target_reached') {
+    throw new AppError('Supply pool is no longer accepting contributions', 400);
+  }
+
+  const qty = Number(quantityKg);
+  if (qty <= 0) throw new AppError('Contribution quantity must be greater than 0', 400);
+
+  const listing = listingId ? await ProduceListing.findById(listingId) : null;
+  if (listing) {
+    const available = listing.availableQuantityKg != null ? listing.availableQuantityKg : listing.quantityKg;
+    if (qty > available) {
+      throw new AppError(`Contributed quantity (${qty}kg) exceeds available listing quantity (${available}kg)`, 400);
+    }
+    listing.availableQuantityKg = Math.max(0, available - qty);
+    if (listing.availableQuantityKg === 0) listing.status = 'matched';
+    await listing.save();
+  }
+
+  // Add contributor
+  pool.contributors.push({
+    farmer: req.user._id,
+    listing: listingId || undefined,
+    quantityKg: qty,
+    offeredPriceInr: Number(offeredPriceInr || pool.targetPriceInr),
+    qualityGrade: listing?.qualityGrade || 'A',
+    location: listing?.location || req.user.location || 'Local Farm',
+    lat: listing?.lat || 17.0575,
+    lng: listing?.lng || 79.2671,
+    status: 'committed',
+  });
+
+  // Re-calculate totals and average price
+  pool.collectedQuantityKg = pool.contributors.reduce((s, c) => s + c.quantityKg, 0);
+  const totalValue = pool.contributors.reduce((s, c) => s + c.quantityKg * c.offeredPriceInr, 0);
+  pool.averageFarmerPriceInr = pool.collectedQuantityKg > 0 ? Number((totalValue / pool.collectedQuantityKg).toFixed(2)) : pool.targetPriceInr;
+
+  if (pool.collectedQuantityKg >= pool.targetQuantityKg) {
+    pool.status = 'target_reached';
+  }
+
+  // Recalculate consolidated logistics
+  const waypoints = pool.contributors.map((c, idx) => ({
+    farmerName: c.location || `Farmer ${idx + 1}`,
+    location: c.location,
+    lat: c.lat,
+    lng: c.lng,
+    pickupQtyKg: c.quantityKg,
+    sequence: idx + 1,
+  }));
+
+  const avgLat = pool.contributors.reduce((s, c) => s + c.lat, 0) / pool.contributors.length;
+  const avgLng = pool.contributors.reduce((s, c) => s + c.lng, 0) / pool.contributors.length;
+  const dist = haversineKm(avgLat, avgLng, pool.destinationLat, pool.destinationLng);
+  const log = calculateLogisticsCost({ distanceKm: dist + 20, quantityKg: pool.collectedQuantityKg });
+
+  pool.consolidatedLogistics = {
+    totalDistanceKm: dist,
+    estimatedTravelTimeMin: log.etaMinutes,
+    totalTransportCostInr: log.totalTransportCostInr,
+    transportCostPerKg: log.transportCostPerKg,
+    routeWaypoints: waypoints,
+    vehicleType: 'standard',
+    spoilageRisk: 'LOW',
+  };
+
+  await pool.save();
+
+  res.json({ dataStatus: 'SIMULATED', message: 'Contribution added to pool successfully', pool });
+});
+
 // ─── FAIR PRICE ───────────────────────────────────────────────────────
 
 export const getFairPrice = asyncHandler(async (req, res) => {
@@ -473,7 +756,6 @@ export const getFairPrice = asyncHandler(async (req, res) => {
   const qty = Number(quantityKg) || 100;
   const fairPriceInfo = await computeAIFairPrice(commodityId, qualityGrade || 'A', location || 'Hyderabad', qty);
 
-  // Try ML service for enhanced prediction
   let demandForecast = null;
   try {
     const commodity = await Commodity.findById(commodityId);
@@ -491,7 +773,7 @@ export const getFairPrice = asyncHandler(async (req, res) => {
       });
     }
   } catch {
-    // ML service may be down
+    // ignore
   }
 
   res.json({
@@ -508,14 +790,14 @@ export const getFairPrice = asyncHandler(async (req, res) => {
 // ─── LOGISTICS ────────────────────────────────────────────────────────
 
 export const calculateLogistics = asyncHandler(async (req, res) => {
-  const { transactionId, listingId, requirementId, quantityKg } = req.query;
+  const { transactionId, listingId, requirementId, quantityKg, vehicleType = 'standard', ambientTempC = 31 } = req.query;
 
-  let pickupLat = 17.385;
-  let pickupLng = 78.487;
+  let pickupLat = 17.0575;
+  let pickupLng = 79.2671;
   let pickupLocation = 'Nalgonda';
 
-  let deliveryLat = 17.4;
-  let deliveryLng = 78.5;
+  let deliveryLat = 17.385;
+  let deliveryLng = 78.487;
   let deliveryLocation = 'Hyderabad';
 
   let qty = Number(quantityKg) || 100;
@@ -540,8 +822,6 @@ export const calculateLogistics = asyncHandler(async (req, res) => {
       pickupLocation = transaction.listing.location || pickupLocation;
     } else if (transaction.farmer?.location) {
       pickupLocation = transaction.farmer.location;
-    } else if (transaction.logistics?.pickupLocation) {
-      pickupLocation = transaction.logistics.pickupLocation;
     }
 
     if (transaction.requirement) {
@@ -550,8 +830,6 @@ export const calculateLogistics = asyncHandler(async (req, res) => {
       deliveryLocation = transaction.requirement.deliveryLocation || deliveryLocation;
     } else if (transaction.buyer?.location) {
       deliveryLocation = transaction.buyer.location;
-    } else if (transaction.logistics?.deliveryLocation) {
-      deliveryLocation = transaction.logistics.deliveryLocation;
     }
   } else if (listingId) {
     const listing = await ProduceListing.findById(listingId);
@@ -573,50 +851,45 @@ export const calculateLogistics = asyncHandler(async (req, res) => {
     }
   }
 
-  const distanceKm = Number(haversineKm(pickupLat, pickupLng, deliveryLat, deliveryLng).toFixed(1));
-  const transportCost = calcTransportCost(distanceKm, qty);
-  const transportCostPerKg = qty > 0 ? Number((transportCost / qty).toFixed(2)) : 0;
-  const etaMin = calcETA(distanceKm);
+  const distanceKm = haversineKm(pickupLat, pickupLng, deliveryLat, deliveryLng);
+  const logResult = calculateLogisticsCost({ distanceKm, quantityKg: qty, vehicleType });
+  const spoilage = evaluateSpoilageRisk({
+    commodityName,
+    distanceKm,
+    transitHours: logResult.etaHours,
+    vehicleType,
+    ambientTempC: Number(ambientTempC),
+  });
 
-  // Route comparison (simulated)
   const routes = [
     {
-      name: 'Route A — Direct Highway',
+      name: 'Route A — Direct Express Highway',
       distanceKm,
-      transportCostInr: transportCost,
-      etaMin,
+      transportCostInr: logResult.totalTransportCostInr,
+      etaMin: logResult.etaMinutes,
       recommended: true,
       saving: 0,
+      vehicleType,
     },
     {
-      name: 'Route B — Express Corridor',
-      distanceKm: Number((distanceKm * 1.15).toFixed(1)),
-      transportCostInr: Number((transportCost * 1.08).toFixed(2)),
-      etaMin: Math.round(etaMin * 0.85),
+      name: 'Route B — Regional State Highway (Low Toll)',
+      distanceKm: Number((distanceKm * 1.12).toFixed(1)),
+      transportCostInr: Number((logResult.totalTransportCostInr * 0.93).toFixed(2)),
+      etaMin: Math.round(logResult.etaMinutes * 1.2),
       recommended: false,
+      saving: Number((logResult.totalTransportCostInr * 0.07).toFixed(2)),
+      vehicleType,
+    },
+    {
+      name: 'Route C — Cold-Chain Priority Corridor',
+      distanceKm: Number((distanceKm * 1.05).toFixed(1)),
+      transportCostInr: Number((logResult.totalTransportCostInr * 1.25).toFixed(2)),
+      etaMin: Math.round(logResult.etaMinutes * 0.9),
+      recommended: vehicleType === 'refrigerated',
       saving: 0,
-    },
-    {
-      name: 'Route C — Regional State Highway',
-      distanceKm: Number((distanceKm * 0.92).toFixed(1)),
-      transportCostInr: Number((transportCost * 0.88).toFixed(2)),
-      etaMin: Math.round(etaMin * 1.25),
-      recommended: false,
-      saving: Number((transportCost - transportCost * 0.88).toFixed(2)),
+      vehicleType: 'refrigerated',
     },
   ];
-
-  // Mark cheapest as saving route
-  const cheapest = routes.reduce((min, r) => (r.transportCostInr < min.transportCostInr ? r : min), routes[0]);
-  routes.forEach((r) => {
-    if (r !== cheapest && r !== routes[0]) {
-      r.saving = Number((routes[0].transportCostInr - r.transportCostInr).toFixed(2));
-    } else if (r === cheapest && r !== routes[0]) {
-      r.saving = Number((routes[0].transportCostInr - r.transportCostInr).toFixed(2));
-      r.recommended = true;
-      routes[0].recommended = false;
-    }
-  });
 
   res.json({
     dataStatus: 'SIMULATED',
@@ -628,19 +901,21 @@ export const calculateLogistics = asyncHandler(async (req, res) => {
       delivery: { location: deliveryLocation, lat: deliveryLat, lng: deliveryLng },
       quantityKg: qty,
       distanceKm,
-      transportCostInr: transportCost,
-      transportCostPerKg,
-      etaMin,
+      transportCostInr: logResult.totalTransportCostInr,
+      transportCostPerKg: logResult.transportCostPerKg,
+      etaMin: logResult.etaMinutes,
+      vehicleType,
+      spoilageRisk: spoilage,
       routes,
-      note: 'Route calculations use simulated distance estimates. A real routing API can be integrated for production.',
+      note: 'Route calculations use simulated distance estimates. Real routing and telemetry adapters can be connected for production.',
     },
   });
 });
 
-// ─── TRANSACTIONS ─────────────────────────────────────────────────────
+// ─── TRANSACTIONS & OFFERS ───────────────────────────────────────────
 
 export const createOffer = asyncHandler(async (req, res) => {
-  const { listingId, requirementId, priceInr, quantityKg, message } = req.body;
+  const { listingId, requirementId, priceInr, quantityKg, message, vehicleType } = req.body;
   const listing = await ProduceListing.findById(listingId);
   if (!listing) throw new AppError('Listing not found', 404);
 
@@ -670,9 +945,14 @@ export const createOffer = asyncHandler(async (req, res) => {
     dataStatus: 'SIMULATED',
   });
 
-  // Create transaction in offer_pending state
-  const logistics = await computeLogisticsData(listing, req.body.deliveryLat, req.body.deliveryLng);
-  const transportCostPerKg = logistics.transportCostPerKg;
+  // Calculate full trade viability & logistics
+  const viability = calculateTradeViability({
+    listing,
+    requirement,
+    grossPriceInr: Number(priceInr),
+    quantityKg: qty,
+    vehicleType: vehicleType || 'standard',
+  });
 
   const transaction = await Transaction.create({
     listing: listingId,
@@ -685,36 +965,28 @@ export const createOffer = asyncHandler(async (req, res) => {
     quantityKg: qty,
     agreedPriceInr: Number(priceInr),
     totalValueInr: Number((Number(priceInr) * qty).toFixed(2)),
-    transportCostInr: logistics.transportCostInr,
-    farmerNetValueInr: Number(((Number(priceInr) - transportCostPerKg) * qty).toFixed(2)),
-    buyerTotalCostInr: Number(((Number(priceInr) + transportCostPerKg) * qty).toFixed(2)),
+    transportCostInr: viability.logistics.totalTransportCostInr,
+    farmerNetValueInr: Number((viability.netFarmerRealizationInr * qty).toFixed(2)),
+    buyerTotalCostInr: Number((Number(priceInr) * qty).toFixed(2)),
     status: 'offer_pending',
+    tradeType: 'DIRECT_TRADE',
+    priceWaterfall: viability.priceWaterfall,
     logistics: {
-      distanceKm: logistics.distanceKm,
-      estimatedTimeMin: logistics.etaMin,
-      transportCostInr: logistics.transportCostInr,
-      transportCostPerKg,
+      distanceKm: viability.distanceKm,
+      estimatedTimeMin: viability.etaMinutes,
+      transportCostInr: viability.logistics.totalTransportCostInr,
+      transportCostPerKg: viability.logistics.transportCostPerKg,
+      vehicleType: vehicleType || 'standard',
+      spoilageRiskScore: viability.spoilage.spoilageRiskScore,
+      expectedSpoilageLossInr: viability.priceWaterfall.spoilageRiskLossPerKg * qty,
       pickupLocation: listing.location,
-      deliveryLocation: logistics.deliveryLocation,
+      deliveryLocation: requirement?.deliveryLocation || 'Buyer Facility',
     },
     dataStatus: 'SIMULATED',
   });
 
-  res.status(201).json({ dataStatus: 'SIMULATED', offer, transaction });
+  res.status(201).json({ dataStatus: 'SIMULATED', offer, transaction, viability });
 });
-
-async function computeLogisticsData(listing, deliveryLat, deliveryLng) {
-  const pickupLat = listing.lat || 17.385;
-  const pickupLng = listing.lng || 78.487;
-  const dLat = deliveryLat || 17.4;
-  const dLng = deliveryLng || 78.5;
-  const distanceKm = Number(haversineKm(pickupLat, pickupLng, dLat, dLng).toFixed(1));
-  const qty = listing.quantityKg;
-  const transportCost = calcTransportCost(distanceKm, qty);
-  const transportCostPerKg = qty > 0 ? Number((transportCost / qty).toFixed(2)) : 0;
-  const etaMin = calcETA(distanceKm);
-  return { distanceKm, transportCostInr: transportCost, transportCostPerKg, etaMin, deliveryLocation: 'Buyer Location' };
-}
 
 export const acceptOffer = asyncHandler(async (req, res) => {
   const offer = await Offer.findById(req.params.id);
@@ -733,7 +1005,6 @@ export const acceptOffer = asyncHandler(async (req, res) => {
       authorized = true;
     }
   } else {
-    // Default fallback if createdBy is unset: recipient is farmer/seller
     if (isFarmer || isBuyer) {
       authorized = true;
     }
@@ -753,7 +1024,7 @@ export const acceptOffer = asyncHandler(async (req, res) => {
     await listing.save();
   }
 
-  // Update transaction: find by offer._id first, or fallback to listing query
+  // Update transaction
   let transaction = await Transaction.findOne({ offer: offer._id });
   if (!transaction) {
     transaction = await Transaction.findOne({ listing: offer.listing, status: 'offer_pending' });
@@ -765,7 +1036,7 @@ export const acceptOffer = asyncHandler(async (req, res) => {
     await transaction.save();
   }
 
-  // Reserve inventory if supplier has inventory for this commodity
+  // Reserve inventory if supplier has inventory
   const inventory = await Inventory.findOne({ seller: offer.farmer, commodity: listing?.commodity });
   if (inventory) {
     inventory.quantityKg = Math.max(0, inventory.quantityKg - offer.quantityKg);
@@ -803,7 +1074,6 @@ export const rejectOffer = asyncHandler(async (req, res) => {
   offer.status = 'rejected';
   await offer.save();
 
-  // Update transaction: find by offer._id first, or fallback to listing query
   let transaction = await Transaction.findOne({ offer: offer._id });
   if (!transaction) {
     transaction = await Transaction.findOne({ listing: offer.listing, status: 'offer_pending' });
@@ -822,8 +1092,6 @@ export const getMyTransactions = asyncHandler(async (req, res) => {
     filter.farmer = req.user._id;
   } else if (req.user.role === 'buyer') {
     filter.buyer = req.user._id;
-  } else {
-    // admin sees all
   }
 
   const transactions = await Transaction.find(filter)
@@ -831,6 +1099,7 @@ export const getMyTransactions = asyncHandler(async (req, res) => {
     .populate('buyer', 'name location avatarInitials')
     .populate('commodity', 'name slug')
     .populate('offer')
+    .populate('supplyPool')
     .sort({ createdAt: -1 });
 
   res.json({ dataStatus: 'SIMULATED', badge: dataBadge(), transactions });
@@ -852,7 +1121,6 @@ export const updateTransactionStatus = asyncHandler(async (req, res) => {
   const allowed = ['accepted', 'logistics_planned', 'in_transit', 'delivered', 'completed', 'rejected', 'cancelled'];
   if (!allowed.includes(status)) throw new AppError('Invalid status transition', 400);
 
-  // If accepting or rejecting directly via transaction status update
   if (status === 'accepted' || status === 'rejected') {
     if (transaction.status !== 'offer_pending') {
       throw new AppError('Can only accept or reject when offer is pending', 400);
@@ -938,39 +1206,45 @@ export const payTransaction = asyncHandler(async (req, res) => {
   });
 });
 
-// ─── TRADE OPPORTUNITY (combined endpoint) ────────────────────────────
+// ─── TRADE OPPORTUNITIES ──────────────────────────────────────────────
 
 export const getTradeOpportunities = asyncHandler(async (req, res) => {
   const role = req.user.role;
   const opportunities = [];
 
   if (role === 'farmer' || role === 'seller' || role === 'admin') {
-    // Find requirements matching farmer's/seller's inventory/listings (or all active listings if admin)
     const listFilter = role === 'admin' ? { status: 'active' } : { farmer: req.user._id, status: 'active' };
     const listings = await ProduceListing.find(listFilter);
     const requirements = await BuyerRequirement.find({ status: { $in: ['active', 'partially_fulfilled'] } })
-      .populate('buyer', 'name location avatarInitials');
+      .populate('buyer', 'name location avatarInitials buyerType');
 
     for (const listing of listings) {
-      for (const req of requirements) {
-        const result = await computeMatchScore(listing, req);
-        if (result.score >= 50) {
+      for (const reqDoc of requirements) {
+        const result = await computeMatchScore(listing, reqDoc);
+        if (result.score >= 40) {
           const fairPriceInfo = await computeAIFairPrice(listing.commodity, listing.qualityGrade, listing.location, listing.quantityKg);
-          const distance = haversineKm(listing.lat || 17.385, listing.lng || 78.487, req.deliveryLat || 17.385, req.deliveryLng || 78.487);
-          const transportCost = calcTransportCost(distance, listing.quantityKg);
-          const transportPerKg = Number((transportCost / listing.quantityKg).toFixed(2));
+          const viability = result.viability || calculateTradeViability({ listing, requirement: reqDoc });
 
           opportunities.push({
             type: 'SELL',
             listing,
-            requirement: req,
+            requirement: reqDoc,
             matchScore: result.score,
             matchReasons: result.reasons,
             fairPrice: fairPriceInfo.fairPrice,
             fairPriceRange: fairPriceInfo.range,
-            buyerOffer: req.maximumPriceInr,
-            transportCostPerKg: transportPerKg,
-            estimatedFarmerNet: Number((fairPriceInfo.fairPrice - transportPerKg).toFixed(2)),
+            buyerOffer: reqDoc.maximumPriceInr,
+            transportCostPerKg: viability.logistics.transportCostPerKg,
+            estimatedFarmerNet: viability.netFarmerRealizationInr,
+            spoilageRiskScore: viability.spoilage.spoilageRiskScore,
+            spoilagePercent: viability.spoilage.spoilagePercent,
+            distanceKm: viability.distanceKm,
+            tradeViabilityScore: viability.viabilityScore,
+            isRecommended: viability.isRecommended,
+            warningReason: viability.warningReason,
+            advisoryPills: viability.advisoryPills,
+            priceWaterfall: viability.priceWaterfall,
+            intermediaryReduction: viability.intermediaryReduction,
             aiConfidence: fairPriceInfo.confidence,
             dealVerdict: result.score >= 75 ? 'FAIR_DEAL' : 'GOOD_FOR_FARMER',
             dataStatus: 'AI_FORECAST',
@@ -978,35 +1252,46 @@ export const getTradeOpportunities = asyncHandler(async (req, res) => {
         }
       }
     }
+
+    // Sort opportunities by Net Farmer Realization and Viability
+    opportunities.sort((a, b) => (b.isRecommended ? 1 : 0) - (a.isRecommended ? 1 : 0) || b.estimatedFarmerNet - a.estimatedFarmerNet);
   }
 
   if (role === 'buyer' || role === 'admin') {
-    // Find listings matching buyer's requirements (or all active requirements if admin)
     const reqFilter = role === 'admin' ? { status: 'active' } : { buyer: req.user._id, status: 'active' };
     const requirements = await BuyerRequirement.find(reqFilter);
     const listings = await ProduceListing.find({ status: 'active' })
       .populate('farmer', 'name location avatarInitials');
 
-    for (const req of requirements) {
+    for (const reqDoc of requirements) {
       const matched = [];
       for (const listing of listings) {
-        const result = await computeMatchScore(listing, req);
-        if (result.score >= 50) {
-          matched.push({ listing, score: result.score, reasons: result.reasons });
+        const result = await computeMatchScore(listing, reqDoc);
+        if (result.score >= 40) {
+          const viability = result.viability || calculateTradeViability({ listing, requirement: reqDoc });
+          matched.push({
+            listing,
+            score: result.score,
+            reasons: result.reasons,
+            netRealization: viability.netFarmerRealizationInr,
+            transportCostPerKg: viability.logistics.transportCostPerKg,
+            spoilageRisk: viability.spoilage.spoilageRiskScore,
+            viabilityScore: viability.viabilityScore,
+          });
         }
       }
       matched.sort((a, b) => b.score - a.score);
       const totalAvailable = matched.reduce((s, m) => s + (m.listing.availableQuantityKg || m.listing.quantityKg), 0);
 
       if (matched.length > 0) {
-        const fairPriceInfo = await computeAIFairPrice(req.commodity, 'A', req.deliveryLocation, req.quantityKg);
+        const fairPriceInfo = await computeAIFairPrice(reqDoc.commodity, 'A', reqDoc.deliveryLocation, reqDoc.quantityKg);
         opportunities.push({
           type: 'BUY',
-          requirement: req,
+          requirement: reqDoc,
           matchedSuppliers: matched.slice(0, 5),
           totalAvailableKg: totalAvailable,
           fairPrice: fairPriceInfo.fairPrice,
-          estimatedLogisticsPerKg: 1.7,
+          estimatedLogisticsPerKg: matched[0]?.transportCostPerKg || 1.8,
           dataStatus: 'AI_FORECAST',
         });
       }

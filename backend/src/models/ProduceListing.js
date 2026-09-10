@@ -16,6 +16,8 @@ const produceListingSchema = new mongoose.Schema(
     lng: { type: Number, default: 78.4867 },
     availableFrom: { type: Date, default: Date.now },
     deliveryPreference: { type: String, enum: ['pickup', 'delivery', 'both'], default: 'both' },
+    tradePreference: { type: String, enum: ['direct', 'pool', 'any'], default: 'any' },
+    packagingType: { type: String, enum: ['standard_crate', 'gunny_bag', 'ventilated_box', 'refrigerated_box'], default: 'standard_crate' },
     status: { type: String, enum: ['active', 'matched', 'sold', 'expired'], default: 'active' },
     availableQuantityKg: { type: Number, required: true },
     dataStatus: { type: String, default: 'SIMULATED' },

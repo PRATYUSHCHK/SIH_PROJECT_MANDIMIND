@@ -6,6 +6,7 @@ import { useTranslation } from '../i18n/index.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { DataStatusBadge } from '../components/DataStatusBadge.jsx';
 import { ErrorState, LoadingSkeleton } from '../components/States.jsx';
+import { SupplyPoolCard } from '../components/SupplyPoolCard.jsx';
 import {
   ShoppingBasket,
   Search,
@@ -18,6 +19,10 @@ import {
   Package,
   X,
   Check,
+  Users,
+  Box,
+  Truck,
+  ArrowRight,
 } from 'lucide-react';
 
 function CreateListingForm({ commodities, onClose, onCreated }) {
@@ -30,8 +35,10 @@ function CreateListingForm({ commodities, onClose, onCreated }) {
     harvestDate: new Date().toISOString().split('T')[0],
     expectedPriceInr: '',
     minimumPriceInr: '',
-    location: 'Hyderabad',
+    location: 'Nalgonda',
     deliveryPreference: 'both',
+    tradePreference: 'any',
+    packagingType: 'standard_crate',
   });
   const [loading, setLoading] = useState(false);
 
@@ -54,15 +61,15 @@ function CreateListingForm({ commodities, onClose, onCreated }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-mm bg-white p-6 shadow-card dark:bg-night-card max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold">{t('marketplace.createListingTitle', 'List Your Produce')}</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl dark:bg-night-card max-h-[90vh] overflow-y-auto space-y-4">
+        <div className="flex items-center justify-between border-b border-line/60 pb-3 dark:border-night-mute/30">
+          <h2 className="text-lg font-bold">{t('marketplace.createListingTitle', 'List Your Farm Produce')}</h2>
           <button onClick={onClose} className="text-mute hover:text-ink"><X size={20} /></button>
         </div>
-        <form onSubmit={submit} className="space-y-4">
+        <form onSubmit={submit} className="space-y-4 text-xs">
           <div>
-            <label className="block text-xs font-bold uppercase text-mute mb-1">{t('common.commodity', 'Commodity')}</label>
+            <label className="block font-bold uppercase text-mute mb-1">{t('common.commodity', 'Commodity')}</label>
             <select
               value={form.commodity}
               onChange={(e) => {
@@ -80,55 +87,78 @@ function CreateListingForm({ commodities, onClose, onCreated }) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold uppercase text-mute mb-1">Quantity (kg)</label>
+              <label className="block font-bold uppercase text-mute mb-1">Quantity (kg)</label>
               <input type="number" min="1" value={form.quantityKg} onChange={(e) => setForm({ ...form, quantityKg: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" required placeholder="500" />
             </div>
             <div>
-              <label className="block text-xs font-bold uppercase text-mute mb-1">Quality Grade</label>
+              <label className="block font-bold uppercase text-mute mb-1">Quality Grade</label>
               <select value={form.qualityGrade} onChange={(e) => setForm({ ...form, qualityGrade: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20">
-                <option value="A">Grade A</option>
-                <option value="B">Grade B</option>
+                <option value="A">Grade A (Premium)</option>
+                <option value="B">Grade B (Standard)</option>
                 <option value="C">Grade C</option>
-                <option value="Organic">Organic</option>
+                <option value="Organic">Certified Organic</option>
               </select>
             </div>
           </div>
-          <div>
-            <label className="block text-xs font-bold uppercase text-mute mb-1">Harvest Date</label>
-            <input type="date" value={form.harvestDate} onChange={(e) => setForm({ ...form, harvestDate: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" required />
-          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold uppercase text-mute mb-1">Expected Price (₹/kg)</label>
+              <label className="block font-bold uppercase text-mute mb-1">Harvest Date</label>
+              <input type="date" value={form.harvestDate} onChange={(e) => setForm({ ...form, harvestDate: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" required />
+            </div>
+            <div>
+              <label className="block font-bold uppercase text-mute mb-1">Packaging Type</label>
+              <select value={form.packagingType} onChange={(e) => setForm({ ...form, packagingType: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20">
+                <option value="standard_crate">Standard Plastic Crates</option>
+                <option value="ventilated_box">Ventilated Agri-Boxes</option>
+                <option value="gunny_bag">Jute / Gunny Bags</option>
+                <option value="refrigerated_box">Insulated Cold-Chain Boxes</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block font-bold uppercase text-mute mb-1">Expected Price (₹/kg)</label>
               <input type="number" min="0" step="0.5" value={form.expectedPriceInr} onChange={(e) => setForm({ ...form, expectedPriceInr: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" required placeholder="28" />
             </div>
             <div>
-              <label className="block text-xs font-bold uppercase text-mute mb-1">Min Price (₹/kg)</label>
+              <label className="block font-bold uppercase text-mute mb-1">Min Price (₹/kg)</label>
               <input type="number" min="0" step="0.5" value={form.minimumPriceInr} onChange={(e) => setForm({ ...form, minimumPriceInr: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" placeholder="Auto" />
             </div>
           </div>
+
           <div>
-            <label className="block text-xs font-bold uppercase text-mute mb-1">Location</label>
+            <label className="block font-bold uppercase text-mute mb-1">Farm / Village Location</label>
             <input type="text" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" required />
           </div>
-          <div>
-            <label className="block text-xs font-bold uppercase text-mute mb-1">Delivery Preference</label>
-            <select value={form.deliveryPreference} onChange={(e) => setForm({ ...form, deliveryPreference: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20">
-              <option value="both">Both Pickup & Delivery</option>
-              <option value="pickup">Buyer Pickup Only</option>
-              <option value="delivery">Farmer Delivery Only</option>
-            </select>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block font-bold uppercase text-mute mb-1">Delivery Preference</label>
+              <select value={form.deliveryPreference} onChange={(e) => setForm({ ...form, deliveryPreference: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20">
+                <option value="both">Both Pickup & Delivery</option>
+                <option value="pickup">Buyer Pickup Only</option>
+                <option value="delivery">Farmer Delivery Only</option>
+              </select>
+            </div>
+            <div>
+              <label className="block font-bold uppercase text-mute mb-1">Trade Mode Preference</label>
+              <select value={form.tradePreference} onChange={(e) => setForm({ ...form, tradePreference: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20">
+                <option value="any">Individual or Supply Pool</option>
+                <option value="direct">Direct Individual Only</option>
+                <option value="pool">Join Supply Pool (FPO)</option>
+              </select>
+            </div>
           </div>
+
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose} className="rounded-lg border border-line px-4 py-2 text-sm font-medium hover:bg-earth dark:border-night-mute/20 dark:hover:bg-night-lift">Cancel</button>
-            <button type="submit" disabled={loading} className="rounded-lg bg-forest px-4 py-2 text-sm font-bold text-white hover:bg-forest-deep disabled:opacity-50">
-              {loading ? 'Creating...' : 'List Produce'}
+            <button type="submit" disabled={loading} className="rounded-lg bg-forest px-5 py-2 text-sm font-bold text-white hover:bg-forest-deep disabled:opacity-50">
+              {loading ? 'Creating...' : 'List Farm Produce'}
             </button>
           </div>
         </form>
-        <div className="mt-3 text-xs text-mute">
-          <DataStatusBadge status="SIMULATED" /> Listing will be visible to all buyers on the marketplace.
-        </div>
       </div>
     </div>
   );
@@ -142,6 +172,8 @@ function CreateRequirementForm({ commodities, onClose, onCreated }) {
     qualityGrade: 'Any',
     maximumPriceInr: '',
     deliveryLocation: 'Hyderabad',
+    buyerType: 'retailer',
+    allowPoolAggregation: true,
     requiredByDate: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0],
   });
   const [loading, setLoading] = useState(false);
@@ -158,21 +190,21 @@ function CreateRequirementForm({ commodities, onClose, onCreated }) {
       onCreated();
       onClose();
     } catch {
-      alert('Failed to create requirement');
+      alert('Failed to post requirement');
     }
     setLoading(false);
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-mm bg-white p-6 shadow-card dark:bg-night-card max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold">Post Buying Requirement</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl dark:bg-night-card max-h-[90vh] overflow-y-auto space-y-4">
+        <div className="flex items-center justify-between border-b border-line/60 pb-3 dark:border-night-mute/30">
+          <h2 className="text-lg font-bold">Post Direct Buying Requirement</h2>
           <button onClick={onClose} className="text-mute hover:text-ink"><X size={20} /></button>
         </div>
-        <form onSubmit={submit} className="space-y-4">
+        <form onSubmit={submit} className="space-y-4 text-xs">
           <div>
-            <label className="block text-xs font-bold uppercase text-mute mb-1">Commodity Needed</label>
+            <label className="block font-bold uppercase text-mute mb-1">Commodity Needed</label>
             <select
               value={form.commodity}
               onChange={(e) => {
@@ -190,43 +222,68 @@ function CreateRequirementForm({ commodities, onClose, onCreated }) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold uppercase text-mute mb-1">Required Quantity (kg)</label>
+              <label className="block font-bold uppercase text-mute mb-1">Required Quantity (kg)</label>
               <input type="number" min="1" value={form.quantityKg} onChange={(e) => setForm({ ...form, quantityKg: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" required placeholder="800" />
             </div>
             <div>
-              <label className="block text-xs font-bold uppercase text-mute mb-1">Quality Grade</label>
+              <label className="block font-bold uppercase text-mute mb-1">Quality Grade</label>
               <select value={form.qualityGrade} onChange={(e) => setForm({ ...form, qualityGrade: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20">
                 <option value="Any">Any Grade</option>
                 <option value="A">Grade A</option>
                 <option value="B">Grade B</option>
-                <option value="C">Grade C</option>
+                <option value="Organic">Organic</option>
               </select>
             </div>
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold uppercase text-mute mb-1">Max Price (₹/kg)</label>
-              <input type="number" min="0" step="0.5" value={form.maximumPriceInr} onChange={(e) => setForm({ ...form, maximumPriceInr: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" required placeholder="30" />
+              <label className="block font-bold uppercase text-mute mb-1">Buyer Organization Type</label>
+              <select value={form.buyerType} onChange={(e) => setForm({ ...form, buyerType: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20">
+                <option value="retailer">Supermarket / Retailer</option>
+                <option value="restaurant">Restaurant / Hotel</option>
+                <option value="processor">Food Processing Enterprise</option>
+                <option value="institutional">Institutional / Canteen</option>
+                <option value="bulk_consumer">Bulk Consumer Group</option>
+              </select>
             </div>
             <div>
-              <label className="block text-xs font-bold uppercase text-mute mb-1">Required By</label>
+              <label className="block font-bold uppercase text-mute mb-1">Max Offer Price (₹/kg)</label>
+              <input type="number" min="0" step="0.5" value={form.maximumPriceInr} onChange={(e) => setForm({ ...form, maximumPriceInr: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" required placeholder="30" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block font-bold uppercase text-mute mb-1">Delivery Destination</label>
+              <input type="text" value={form.deliveryLocation} onChange={(e) => setForm({ ...form, deliveryLocation: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" required />
+            </div>
+            <div>
+              <label className="block font-bold uppercase text-mute mb-1">Required By Date</label>
               <input type="date" value={form.requiredByDate} onChange={(e) => setForm({ ...form, requiredByDate: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" required />
             </div>
           </div>
-          <div>
-            <label className="block text-xs font-bold uppercase text-mute mb-1">Delivery Location</label>
-            <input type="text" value={form.deliveryLocation} onChange={(e) => setForm({ ...form, deliveryLocation: e.target.value })} className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20" required />
+
+          <div className="flex items-center gap-2 rounded-lg bg-earth/40 p-3">
+            <input
+              type="checkbox"
+              id="allowPooling"
+              checked={form.allowPoolAggregation}
+              onChange={(e) => setForm({ ...form, allowPoolAggregation: e.target.checked })}
+              className="rounded text-forest"
+            />
+            <label htmlFor="allowPooling" className="font-bold text-ink dark:text-night-text cursor-pointer">
+              Allow Multi-Farmer Supply Pooling (FPO Aggregation)
+            </label>
           </div>
+
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose} className="rounded-lg border border-line px-4 py-2 text-sm font-medium hover:bg-earth dark:border-night-mute/20 dark:hover:bg-night-lift">Cancel</button>
-            <button type="submit" disabled={loading} className="rounded-lg bg-forest px-4 py-2 text-sm font-bold text-white hover:bg-forest-deep disabled:opacity-50">
+            <button type="submit" disabled={loading} className="rounded-lg bg-forest px-5 py-2 text-sm font-bold text-white hover:bg-forest-deep disabled:opacity-50">
               {loading ? 'Posting...' : 'Post Requirement'}
             </button>
           </div>
         </form>
-        <div className="mt-3 text-xs text-mute">
-          <DataStatusBadge status="SIMULATED" /> Your requirement will be matched with available farmer listings.
-        </div>
       </div>
     </div>
   );
@@ -235,14 +292,9 @@ function CreateRequirementForm({ commodities, onClose, onCreated }) {
 function ListingCard({ listing, currentUser, onMatch }) {
   const { t } = useTranslation();
   const gradeColor = listing.qualityGrade === 'A' ? 'bg-forest/15 text-forest' : listing.qualityGrade === 'B' ? 'bg-harvest/15 text-harvest' : 'bg-earth text-ink';
-  
-  const actionLabel = 
-    currentUser?.role === 'farmer' || currentUser?.role === 'seller' ? t('marketplace.findBuyers', 'Find Buyers') :
-    currentUser?.role === 'buyer' ? t('marketplace.findSuppliers', 'Find Suppliers') :
-    t('marketplace.findMatches', 'Find Matches');
 
   return (
-    <div className="rounded-mm border border-line bg-white p-5 shadow-card dark:border-night-mute/20 dark:bg-night-card hover:shadow-lg transition-shadow">
+    <div className="rounded-mm border border-line bg-white p-5 shadow-card dark:border-night-mute/20 dark:bg-night-card hover:shadow-lg transition-shadow space-y-3">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-2">
           <div className="grid h-10 w-10 place-items-center rounded-xl bg-forest/10">
@@ -250,42 +302,43 @@ function ListingCard({ listing, currentUser, onMatch }) {
           </div>
           <div>
             <div className="font-bold text-ink dark:text-night-text">{listing.commodityName}</div>
-            <div className="text-xs text-mute">{listing.farmer?.name || 'Farmer'}</div>
+            <div className="text-xs text-mute">{listing.farmer?.name || 'Producer'} • {listing.location}</div>
           </div>
         </div>
         <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${gradeColor}`}>
-          {listing.qualityGrade}
+          Grade {listing.qualityGrade}
         </span>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <div className="flex items-center gap-2">
-          <Weight size={14} className="text-mute" />
-          <span className="tabular font-bold">{listing.quantityKg} kg</span>
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="flex items-center gap-1.5 text-mute">
+          <Weight size={13} />
+          <span className="tabular font-bold text-ink dark:text-night-text">{listing.availableQuantityKg || listing.quantityKg} kg available</span>
         </div>
-        <div className="flex items-center gap-2">
-          <IndianRupee size={14} className="text-mute" />
-          <span className="tabular font-bold">₹{listing.expectedPriceInr}/kg</span>
+        <div className="flex items-center gap-1.5 text-mute">
+          <IndianRupee size={13} />
+          <span className="tabular font-bold text-forest dark:text-harvest">₹{listing.expectedPriceInr}/kg asking</span>
         </div>
-        <div className="flex items-center gap-2">
-          <MapPin size={14} className="text-mute" />
-          <span>{listing.location}</span>
+        <div className="flex items-center gap-1.5 text-mute">
+          <Box size={13} />
+          <span>{listing.packagingType?.replace('_', ' ') || 'Crates'}</span>
         </div>
-        <div className="flex items-center gap-2">
-          <Calendar size={14} className="text-mute" />
+        <div className="flex items-center gap-1.5 text-mute">
+          <Calendar size={13} />
           <span>{new Date(listing.harvestDate).toLocaleDateString()}</span>
         </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-between">
-        <span className="rounded-full bg-earth/60 px-2 py-0.5 text-[10px] text-mute dark:bg-night-lift">
-          {listing.deliveryPreference === 'both' ? 'Pickup or Delivery' : listing.deliveryPreference}
+      <div className="flex items-center justify-between pt-2 border-t border-line/60 dark:border-night-mute/30">
+        <span className="rounded-full bg-forest/10 px-2.5 py-0.5 text-[10px] font-bold text-forest uppercase">
+          DIRECT TRADE
         </span>
         <button
           onClick={() => onMatch(listing, 'listing')}
-          className="rounded-lg bg-forest/10 px-3 py-1.5 text-xs font-bold text-forest hover:bg-forest hover:text-white transition-colors dark:bg-harvest/10 dark:text-harvest dark:hover:bg-harvest"
+          className="flex items-center gap-1 rounded-lg bg-forest px-3 py-1.5 text-xs font-bold text-white hover:bg-forest-deep transition-colors dark:bg-harvest dark:text-ink"
         >
-          {actionLabel}
+          <span>Find Direct Buyers</span>
+          <ArrowRight size={13} />
         </button>
       </div>
     </div>
@@ -295,14 +348,9 @@ function ListingCard({ listing, currentUser, onMatch }) {
 function RequirementCard({ requirement, currentUser, onMatch }) {
   const { t } = useTranslation();
   const gradeColor = requirement.qualityGrade === 'A' ? 'bg-forest/15 text-forest' : requirement.qualityGrade === 'Any' ? 'bg-info/15 text-info' : 'bg-earth text-ink';
-  
-  const actionLabel = 
-    currentUser?.role === 'farmer' || currentUser?.role === 'seller' ? t('marketplace.findBuyers', 'Find Buyers') :
-    currentUser?.role === 'buyer' ? t('marketplace.findSuppliers', 'Find Suppliers') :
-    t('marketplace.findMatches', 'Find Matches');
 
   return (
-    <div className="rounded-mm border border-line bg-white p-5 shadow-card dark:border-night-mute/20 dark:bg-night-card hover:shadow-lg transition-shadow">
+    <div className="rounded-mm border border-line bg-white p-5 shadow-card dark:border-night-mute/20 dark:bg-night-card hover:shadow-lg transition-shadow space-y-3">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-2">
           <div className="grid h-10 w-10 place-items-center rounded-xl bg-harvest/10">
@@ -310,7 +358,9 @@ function RequirementCard({ requirement, currentUser, onMatch }) {
           </div>
           <div>
             <div className="font-bold text-ink dark:text-night-text">{requirement.commodityName}</div>
-            <div className="text-xs text-mute">{requirement.buyer?.name || 'Buyer'}</div>
+            <div className="text-xs text-mute">
+              {requirement.buyer?.name || 'Buyer'} • <span className="uppercase font-semibold">{requirement.buyerType || 'Retailer'}</span>
+            </div>
           </div>
         </div>
         <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${gradeColor}`}>
@@ -318,31 +368,35 @@ function RequirementCard({ requirement, currentUser, onMatch }) {
         </span>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <div className="flex items-center gap-2">
-          <Weight size={14} className="text-mute" />
-          <span className="tabular font-bold">{requirement.quantityKg} kg</span>
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="flex items-center gap-1.5 text-mute">
+          <Weight size={13} />
+          <span className="tabular font-bold text-ink dark:text-night-text">{requirement.quantityKg} kg needed</span>
         </div>
-        <div className="flex items-center gap-2">
-          <IndianRupee size={14} className="text-mute" />
-          <span className="tabular font-bold">Max ₹{requirement.maximumPriceInr}/kg</span>
+        <div className="flex items-center gap-1.5 text-mute">
+          <IndianRupee size={13} />
+          <span className="tabular font-bold text-forest dark:text-harvest">Max ₹{requirement.maximumPriceInr}/kg</span>
         </div>
-        <div className="flex items-center gap-2">
-          <MapPin size={14} className="text-mute" />
+        <div className="flex items-center gap-1.5 text-mute">
+          <MapPin size={13} />
           <span>{requirement.deliveryLocation}</span>
         </div>
-        <div className="flex items-center gap-2">
-          <Calendar size={14} className="text-mute" />
+        <div className="flex items-center gap-1.5 text-mute">
+          <Calendar size={13} />
           <span>By {new Date(requirement.requiredByDate).toLocaleDateString()}</span>
         </div>
       </div>
 
-      <div className="mt-3 flex justify-end">
+      <div className="flex items-center justify-between pt-2 border-t border-line/60 dark:border-night-mute/30">
+        <span className="rounded-full bg-harvest/15 px-2.5 py-0.5 text-[10px] font-bold text-harvest uppercase">
+          {requirement.allowPoolAggregation ? 'POOLS ALLOWED' : 'DIRECT ONLY'}
+        </span>
         <button
           onClick={() => onMatch(requirement, 'requirement')}
-          className="rounded-lg bg-harvest/10 px-3 py-1.5 text-xs font-bold text-harvest hover:bg-harvest hover:text-ink transition-colors"
+          className="flex items-center gap-1 rounded-lg bg-harvest px-3 py-1.5 text-xs font-bold text-ink hover:bg-harvest/80 transition-colors"
         >
-          {actionLabel}
+          <span>Find Suppliers</span>
+          <ArrowRight size={13} />
         </button>
       </div>
     </div>
@@ -353,9 +407,10 @@ export default function MarketplacePage() {
   const { user } = useAuth();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [tab, setTab] = useState('listings');
+  const [tab, setTab] = useState('listings'); // 'listings' | 'requirements' | 'pools'
   const [listings, setListings] = useState([]);
   const [requirements, setRequirements] = useState([]);
+  const [supplyPools, setSupplyPools] = useState([]);
   const [commodities, setCommodities] = useState([]);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
@@ -367,14 +422,16 @@ export default function MarketplacePage() {
     setLoading(true);
     setErr('');
     try {
-      const [listRes, reqRes, comRes] = await Promise.all([
+      const [listRes, reqRes, poolRes, comRes] = await Promise.all([
         api.get('/marketplace/listings'),
         api.get('/marketplace/requirements'),
+        api.get('/marketplace/pools').catch(() => ({ data: { pools: [] } })),
         api.get('/commodities'),
       ]);
-      setListings(listRes.data.listings);
-      setRequirements(reqRes.data.requirements);
-      setCommodities(comRes.data.commodities);
+      setListings(listRes.data.listings || []);
+      setRequirements(reqRes.data.requirements || []);
+      setSupplyPools(poolRes.data.pools || []);
+      setCommodities(comRes.data.commodities || []);
     } catch (e) {
       setErr(e.response?.data?.error || e.message);
     }
@@ -394,6 +451,9 @@ export default function MarketplacePage() {
   const filteredRequirements = filterCommodity
     ? requirements.filter((r) => r.commodityName.toLowerCase() === filterCommodity.toLowerCase())
     : requirements;
+  const filteredPools = filterCommodity
+    ? supplyPools.filter((p) => p.commodityName.toLowerCase() === filterCommodity.toLowerCase())
+    : supplyPools;
 
   function handleMatch(item, type) {
     if (type === 'listing' || tab === 'listings') {
@@ -406,9 +466,9 @@ export default function MarketplacePage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Direct Marketplace"
+        eyebrow="Direct Trading & Aggregation Floor"
         title={t('marketplace.title', 'Farmer–Buyer Marketplace')}
-        subtitle={t('marketplace.subtitle', 'Connect directly with buyers. No intermediaries. AI-powered matching for fair prices.')}
+        subtitle={t('marketplace.subtitle', 'Direct trade coordination between producers and commercial buyers. Zero reseller middlemen.')}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <DataStatusBadge status="SIMULATED" />
@@ -426,16 +486,6 @@ export default function MarketplacePage() {
         }
       />
 
-      {/* Data source */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-earth/40 px-4 py-2 text-xs text-mute dark:border-night-mute/20 dark:bg-night-lift/40">
-        <div>
-          <span className="font-bold text-ink dark:text-night-text">{t('common.dataSource', 'Data Source')}:</span> {t('badges.simulated', 'SIMULATED DEMO DATA')}
-        </div>
-        <div>
-          <span className="font-bold text-ink dark:text-night-text">{t('common.lastUpdated', 'Last Updated')}:</span> {new Date().toLocaleTimeString()}
-        </div>
-      </div>
-
       {/* Tabs */}
       <div className="flex gap-1 rounded-xl bg-earth/60 p-1 dark:bg-night-lift">
         <button
@@ -445,7 +495,7 @@ export default function MarketplacePage() {
           }`}
         >
           <ShoppingBasket size={14} className="mr-1.5 inline" />
-          {t('marketplace.produceListings', 'Produce Listings')} ({filteredListings.length})
+          {t('marketplace.produceListings', 'Farm Listings')} ({filteredListings.length})
         </button>
         <button
           onClick={() => setTab('requirements')}
@@ -454,25 +504,34 @@ export default function MarketplacePage() {
           }`}
         >
           <Package size={14} className="mr-1.5 inline" />
-          {t('marketplace.buyerRequirements', 'Buyer Requirements')} ({filteredRequirements.length})
+          {t('marketplace.buyerRequirements', 'Direct Buyer Demands')} ({filteredRequirements.length})
+        </button>
+        <button
+          onClick={() => setTab('pools')}
+          className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-bold transition-colors ${
+            tab === 'pools' ? 'bg-white text-forest shadow-sm dark:bg-night-card dark:text-harvest' : 'text-mute hover:text-ink'
+          }`}
+        >
+          <Users size={14} className="mr-1.5 inline" />
+          FPO Supply Pools ({filteredPools.length})
         </button>
       </div>
 
-      {/* Create button */}
+      {/* Create action buttons */}
       <div className="flex justify-end">
         {tab === 'listings' && (user?.role === 'farmer' || user?.role === 'seller' || user?.role === 'admin') ? (
           <button
             onClick={() => setShowCreateListing(true)}
-            className="flex items-center gap-2 rounded-lg bg-forest px-4 py-2.5 text-sm font-bold text-white hover:bg-forest-deep transition-colors"
+            className="flex items-center gap-2 rounded-lg bg-forest px-5 py-2.5 text-sm font-bold text-white hover:bg-forest-deep transition-colors"
           >
             <Plus size={16} /> {t('marketplace.listProduce', 'List Produce')}
           </button>
         ) : tab === 'requirements' && (user?.role === 'buyer' || user?.role === 'admin') ? (
           <button
             onClick={() => setShowCreateRequirement(true)}
-            className="flex items-center gap-2 rounded-lg bg-harvest px-4 py-2.5 text-sm font-bold text-ink hover:bg-harvest/80 transition-colors"
+            className="flex items-center gap-2 rounded-lg bg-harvest px-5 py-2.5 text-sm font-bold text-ink hover:bg-harvest/80 transition-colors"
           >
-            <Plus size={16} /> {t('marketplace.postRequirement', 'Post Requirement')}
+            <Plus size={16} /> {t('marketplace.postRequirement', 'Post Direct Buying Requirement')}
           </button>
         ) : null}
       </div>
@@ -483,7 +542,7 @@ export default function MarketplacePage() {
           <div className="rounded-mm border border-dashed border-line bg-earth/30 p-12 text-center dark:border-night-mute/20 dark:bg-night-lift/30">
             <ShoppingBasket size={32} className="mx-auto text-mute" />
             <div className="mt-3 text-sm font-medium text-mute">{t('marketplace.noListings', 'No produce listings found')}</div>
-            <div className="mt-1 text-xs text-mute">{t('marketplace.subtitle', 'Farmers and sellers can list their produce here to find buyers directly.')}</div>
+            <div className="mt-1 text-xs text-mute">List your farm produce to match with direct institutional buyers.</div>
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -492,18 +551,40 @@ export default function MarketplacePage() {
             ))}
           </div>
         )
-      ) : filteredRequirements.length === 0 ? (
-        <div className="rounded-mm border border-dashed border-line bg-earth/30 p-12 text-center dark:border-night-mute/20 dark:bg-night-lift/30">
-          <Package size={32} className="mx-auto text-mute" />
-          <div className="mt-3 text-sm font-medium text-mute">{t('marketplace.noRequirements', 'No buyer requirements found')}</div>
-          <div className="mt-1 text-xs text-mute">{t('marketplace.subtitle', 'Buyers can post their requirements here to find suppliers directly.')}</div>
-        </div>
+      ) : tab === 'requirements' ? (
+        filteredRequirements.length === 0 ? (
+          <div className="rounded-mm border border-dashed border-line bg-earth/30 p-12 text-center dark:border-night-mute/20 dark:bg-night-lift/30">
+            <Package size={32} className="mx-auto text-mute" />
+            <div className="mt-3 text-sm font-medium text-mute">{t('marketplace.noRequirements', 'No buyer requirements found')}</div>
+            <div className="mt-1 text-xs text-mute">Direct buyers post procurement requirements here.</div>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {filteredRequirements.map((r) => (
+              <RequirementCard key={r._id} requirement={r} currentUser={user} onMatch={handleMatch} />
+            ))}
+          </div>
+        )
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredRequirements.map((r) => (
-            <RequirementCard key={r._id} requirement={r} currentUser={user} onMatch={handleMatch} />
-          ))}
-        </div>
+        /* Supply Pools Tab */
+        filteredPools.length === 0 ? (
+          <div className="rounded-mm border border-dashed border-line bg-earth/30 p-12 text-center dark:border-night-mute/20 dark:bg-night-lift/30">
+            <Users size={32} className="mx-auto text-mute" />
+            <div className="mt-3 text-sm font-medium text-mute">No active supply pools found</div>
+            <div className="mt-1 text-xs text-mute">Supply pools are created when buyer orders exceed single-farmer harvest size.</div>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {filteredPools.map((pool) => (
+              <SupplyPoolCard
+                key={pool._id}
+                pool={pool}
+                currentUser={user}
+                onContributed={loadData}
+              />
+            ))}
+          </div>
+        )
       )}
 
       {/* Modals */}

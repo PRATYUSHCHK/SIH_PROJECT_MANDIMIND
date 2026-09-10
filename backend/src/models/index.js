@@ -19,3 +19,4 @@ export * from './BuyerRequirement.js';
 export * from './Transaction.js';
 export * from './MarketplaceMatch.js';
 export * from './Offer.js';
+export * from './SupplyPool.js';

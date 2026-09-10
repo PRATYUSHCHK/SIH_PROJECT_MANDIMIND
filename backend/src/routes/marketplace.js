@@ -19,6 +19,11 @@ import {
   updateTransactionStatus,
   payTransaction,
   getTradeOpportunities,
+  createSupplyPool,
+  getSupplyPools,
+  getSupplyPoolById,
+  contributeToSupplyPool,
+  getTradeAnalysis,
 } from '../controllers/marketplaceController.js';
 
 export const marketplaceRouter = Router();
@@ -34,9 +39,16 @@ marketplaceRouter.post('/requirements', requireAuth, requireRole('buyer', 'admin
 marketplaceRouter.get('/requirements', requireAuth, getRequirements);
 marketplaceRouter.get('/requirements/mine', requireAuth, requireRole('buyer', 'admin'), getMyRequirements);
 
-// AI matching
+// AI matching & Trade Viability
 marketplaceRouter.get('/matches', requireAuth, runMatching);
 marketplaceRouter.get('/matches/:id', requireAuth, getMatchById);
+marketplaceRouter.post('/trade-analysis', requireAuth, getTradeAnalysis);
+
+// Supply Pooling (Multi-farmer Aggregation)
+marketplaceRouter.post('/pools', requireAuth, requireRole('farmer', 'seller', 'buyer', 'admin'), createSupplyPool);
+marketplaceRouter.get('/pools', requireAuth, getSupplyPools);
+marketplaceRouter.get('/pools/:id', requireAuth, getSupplyPoolById);
+marketplaceRouter.post('/pools/:id/contribute', requireAuth, requireRole('farmer', 'seller', 'admin'), contributeToSupplyPool);
 
 // Fair price
 marketplaceRouter.get('/fair-price', requireAuth, getFairPrice);

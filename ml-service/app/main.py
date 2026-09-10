@@ -227,3 +227,90 @@ def farmer_rank(p: Payload):
         "disclaimer": "Estimated return and risk-adjusted opportunity — not guaranteed profit.",
         "languageNote": "Avoids model jargon for farmer-facing copy.",
     }
+
+
+@app.post("/spoilage/risk")
+def spoilage_risk_detailed(p: Payload):
+    d = p.model_dump()
+    commodity = d.get("commodity", "tomato").lower()
+    dist_km = float(d.get("distanceKm", 100))
+    transit_hours = float(d.get("transitHours", dist_km / 40.0))
+    vehicle = d.get("vehicleType", "standard")
+    temp = float(d.get("temperatureC", 31))
+    harvest_age = float(d.get("harvestAgeDays", 1))
+
+    perish_map = {
+        "spinach": {"base_decay": 0.020, "level": "VERY HIGH", "max_safe_std": 6, "max_safe_ref": 24},
+        "tomato": {"base_decay": 0.008, "level": "HIGH", "max_safe_std": 12, "max_safe_ref": 48},
+        "chilli": {"base_decay": 0.004, "level": "MEDIUM", "max_safe_std": 24, "max_safe_ref": 72},
+        "onion": {"base_decay": 0.002, "level": "MEDIUM", "max_safe_std": 48, "max_safe_ref": 120},
+        "potato": {"base_decay": 0.001, "level": "LOW", "max_safe_std": 72, "max_safe_ref": 168},
+    }
+    prof = perish_map.get(commodity, {"base_decay": 0.005, "level": "MEDIUM", "max_safe_std": 18, "max_safe_ref": 48})
+    max_safe = prof["max_safe_ref"] if vehicle == "refrigerated" else prof["max_safe_std"]
+    
+    temp_mult = 1.0 + max(0.0, (temp - 24.0) * 0.04) if vehicle != "refrigerated" else 1.0
+    age_mult = 1.0 + max(0.0, (harvest_age - 1.0) * 0.25)
+    prob = prof["base_decay"] * transit_hours * temp_mult * age_mult
+    if vehicle != "refrigerated" and transit_hours > max_safe:
+        prob += (transit_hours - max_safe) * 0.035
+    prob = min(0.85, max(0.02, round(prob, 3)))
+
+    risk_label = "HIGH" if prob > 0.20 or transit_hours > max_safe * 1.2 else ("MEDIUM" if prob > 0.09 else "LOW")
+
+    return {
+        "spoilageRiskScore": risk_label,
+        "spoilageProbability": prob,
+        "spoilagePercent": round(prob * 100, 1),
+        "maxSafeTransitHours": max_safe,
+        "perishability": prof["level"],
+        "dataStatus": "AI_FORECAST",
+    }
+
+
+@app.post("/trade/viability")
+def trade_viability_ai(p: Payload):
+    d = p.model_dump()
+    gross_price = float(d.get("grossPriceInr", 30))
+    transport_cost = float(d.get("transportCostPerKg", 2.0))
+    distance_km = float(d.get("distanceKm", 100))
+    spoilage_prob = float(d.get("spoilageProbability", 0.05))
+    packaging = float(d.get("packagingCostPerKg", 0.8))
+    handling = float(d.get("handlingCostPerKg", 0.4))
+    platform_fee = 0.50
+
+    expected_spoilage_loss = round(gross_price * spoilage_prob, 2)
+    net_realization = round(gross_price - transport_cost - packaging - handling - expected_spoilage_loss - platform_fee, 2)
+
+    margin_pct = (net_realization / max(gross_price, 1)) * 100
+    viability_score = 50
+    if margin_pct >= 80:
+        viability_score += 30
+    elif margin_pct >= 70:
+        viability_score += 20
+    elif margin_pct >= 55:
+        viability_score += 10
+    else:
+        viability_score -= 20
+
+    if distance_km <= 150:
+        viability_score += 15
+    elif distance_km > 500:
+        viability_score -= 15
+
+    if spoilage_prob < 0.08:
+        viability_score += 15
+    elif spoilage_prob > 0.20:
+        viability_score -= 20
+
+    viability_score = max(10, min(98, viability_score))
+    is_recommended = viability_score >= 60 and net_realization >= (gross_price * 0.55) and spoilage_prob <= 0.25
+
+    return {
+        "viabilityScore": viability_score,
+        "netFarmerRealizationInr": net_realization,
+        "expectedSpoilageLossInr": expected_spoilage_loss,
+        "isRecommended": is_recommended,
+        "marginPct": round(margin_pct, 1),
+        "dataStatus": "AI_FORECAST",
+    }

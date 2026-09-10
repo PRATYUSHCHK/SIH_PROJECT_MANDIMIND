@@ -16,6 +16,45 @@ const marketplaceMatchSchema = new mongoose.Schema(
     aiPriceRange: { lower: Number, upper: Number },
     dealVerdict: { type: String, enum: ['FAIR_DEAL', 'GOOD_FOR_FARMER', 'GOOD_FOR_BUYER', 'OVERPRICED', 'UNDERPRICED'] },
     demandTrend: { type: String },
+    
+    // Trade Viability & Economics
+    tradeViabilityScore: { type: Number, default: 80, min: 0, max: 100 },
+    netFarmerRealizationInr: { type: Number, default: 0 },
+    transportCostPerKg: { type: Number, default: 0 },
+    distanceKm: { type: Number, default: 0 },
+    estimatedTravelTimeMin: { type: Number, default: 0 },
+    packagingCostPerKg: { type: Number, default: 0 },
+    handlingCostPerKg: { type: Number, default: 0 },
+    
+    // Spoilage Risk
+    spoilageRiskScore: { type: String, enum: ['LOW', 'MEDIUM', 'HIGH'], default: 'LOW' },
+    spoilageProbability: { type: Number, default: 0.05 },
+    expectedSpoilageLossInr: { type: Number, default: 0 },
+    recommendedVehicleType: { type: String, default: 'standard' },
+    
+    // Trade Advisory / Warnings
+    isRecommended: { type: Boolean, default: true },
+    warningReason: { type: String, default: '' },
+    advisoryPills: [{ type: String }],
+    
+    // Price Waterfall breakdown
+    priceWaterfall: {
+      buyerPricePerKg: { type: Number, default: 0 },
+      farmerRealizationPerKg: { type: Number, default: 0 },
+      logisticsCostPerKg: { type: Number, default: 0 },
+      packagingCostPerKg: { type: Number, default: 0 },
+      handlingCostPerKg: { type: Number, default: 0 },
+      spoilageRiskLossPerKg: { type: Number, default: 0 },
+      platformServiceFeePerKg: { type: Number, default: 0 },
+    },
+
+    // Intermediary Reduction Analysis
+    intermediaryReduction: {
+      commercialLayersSaved: { type: Number, default: 3 },
+      traditionalEstimatedMarkupPct: { type: Number, default: 22 },
+      channelType: { type: String, default: 'DIRECT_TRADE' },
+    },
+
     status: { type: String, enum: ['new', 'viewed', 'offered', 'expired'], default: 'new' },
     dataStatus: { type: String, default: 'AI_FORECAST' },
   },
