@@ -257,8 +257,17 @@ export const globalSearch = asyncHandler(async (req, res) => {
     matchedAlerts.length +
     matchedPages.length;
 
+  let assistant = null;
+  try {
+    const { answerAssistantQuery } = await import('../services/chatbotService.js');
+    assistant = await answerAssistantQuery({ query: rawQ, user: req.user });
+  } catch {
+    // fallback
+  }
+
   res.json({
     query: rawQ,
+    assistant,
     listings: matchedListings.slice(0, 6),
     requirements: matchedRequirements.slice(0, 6),
     supplyPools: matchedSupplyPools.slice(0, 6),
@@ -279,5 +288,15 @@ export const globalSearch = asyncHandler(async (req, res) => {
     },
     totalCount,
     dataStatus: 'LIVE_SEARCH',
+  });
+});
+
+export const assistantChat = asyncHandler(async (req, res) => {
+  const { query } = req.body;
+  const { answerAssistantQuery } = await import('../services/chatbotService.js');
+  const result = await answerAssistantQuery({ query: query || '', user: req.user });
+  res.json({
+    dataStatus: 'AI_FORECAST',
+    ...result,
   });
 });

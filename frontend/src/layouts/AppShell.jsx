@@ -25,6 +25,7 @@ import {
 import { Logo } from '../components/Logo.jsx';
 import { DataStatusBadge } from '../components/DataStatusBadge.jsx';
 import { GlobalSearch } from '../components/GlobalSearch.jsx';
+import { MandiMindAssistantModal } from '../components/MandiMindAssistantModal.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { useTranslation } from '../i18n/index.jsx';
@@ -53,6 +54,7 @@ export function AppShell() {
   const { t, lang, setLanguage, languages, currentLangObj } = useTranslation();
   const navigate = useNavigate();
   const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const langMenuRef = useRef(null);
 
   useEffect(() => {
@@ -136,11 +138,10 @@ export function AppShell() {
                       setLanguage(l.code);
                       setLangMenuOpen(false);
                     }}
-                    className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-lg transition-colors ${
-                      lang === l.code
+                    className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-lg transition-colors ${lang === l.code
                         ? 'bg-forest/10 text-forest font-bold dark:bg-harvest/15 dark:text-harvest'
                         : 'text-ink hover:bg-earth dark:text-night-text dark:hover:bg-night-lift'
-                    }`}
+                      }`}
                   >
                     <div className="text-left">
                       <div className="font-medium">{l.native}</div>
@@ -152,6 +153,16 @@ export function AppShell() {
               </div>
             )}
           </div>
+
+          <button
+            type="button"
+            onClick={() => setAssistantOpen(true)}
+            className="flex items-center gap-1.5 rounded-full border border-forest/30 bg-forest/10 px-3 py-1.5 text-xs font-bold text-forest hover:bg-forest hover:text-white dark:border-harvest/30 dark:bg-harvest/15 dark:text-harvest dark:hover:bg-harvest dark:hover:text-ink transition-colors"
+            title="MandiMind AI Assistant"
+          >
+            <Sparkles size={14} />
+            <span className="hidden sm:inline">AI Assistant</span>
+          </button>
 
           <DataStatusBadge status="SIMULATED" />
 
@@ -165,6 +176,11 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+
+      <MandiMindAssistantModal
+        isOpen={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+      />
 
       <nav className="fixed inset-x-0 bottom-0 z-30 flex justify-around border-t border-line bg-white py-2 dark:border-night-mute/20 dark:bg-night-card md:hidden">
         {items.slice(0, 5).map((n) => (

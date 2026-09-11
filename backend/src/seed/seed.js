@@ -21,12 +21,14 @@ import {
   Offer,
   MarketplaceMatch,
   SupplyPool,
+  Shipment,
 } from '../models/index.js';
+import { calculateMultiStopLogisticsPlan } from '../services/tradeViabilityService.js';
 
 const COMMODITIES = [
   { slug: 'tomato', name: 'Tomato', perishability: 'high', shelfLifeDays: 5, typicalPriceInr: 28, waterNeed: 'high', seasonality: ['kharif', 'rabi'] },
   { slug: 'onion', name: 'Onion', perishability: 'medium', shelfLifeDays: 21, typicalPriceInr: 26, waterNeed: 'medium', seasonality: ['rabi'] },
-  { slug: 'potato', name: 'Potato', perishability: 'low', shelfLifeDays: 40, typicalPriceInr: 22, waterNeed: 'medium', seasonality: ['rabi'] },
+  { slug: 'potato', name: 'Potato', perishability: 'low', shelfLifeDays: 40, typicalPriceInr: 30, waterNeed: 'medium', seasonality: ['rabi'] },
   { slug: 'chilli', name: 'Chilli', perishability: 'medium', shelfLifeDays: 10, typicalPriceInr: 55, waterNeed: 'medium', seasonality: ['kharif'] },
   { slug: 'spinach', name: 'Spinach', perishability: 'high', shelfLifeDays: 3, typicalPriceInr: 18, waterNeed: 'high', seasonality: ['rabi', 'kharif'] },
 ];
@@ -72,6 +74,7 @@ export async function seed({ force = false } = {}) {
     Offer.deleteMany({}),
     MarketplaceMatch.deleteMany({}),
     SupplyPool.deleteMany({}),
+    Shipment.deleteMany({}),
   ]);
 
   const passwordHash = await bcrypt.hash('demo1234', 10);
@@ -79,6 +82,20 @@ export async function seed({ force = false } = {}) {
     { name: 'Ananya Rao', email: 'seller@mandimind.demo', passwordHash, role: 'seller', location: 'Hyderabad', avatarInitials: 'AR' },
     { name: 'Ravi Reddy', email: 'farmer@mandimind.demo', passwordHash, role: 'farmer', location: 'Nalgonda', avatarInitials: 'RR' },
     { name: 'Meera Iyer', email: 'admin@mandimind.demo', passwordHash, role: 'admin', location: 'Hyderabad', avatarInitials: 'MI' },
+  ]);
+
+  // Additional farmers
+  const [farmer2_suresh, farmer3_dhanush] = await User.create([
+    { name: 'Suresh Patel', email: 'farmer2@mandimind.demo', passwordHash, role: 'farmer', location: 'Suryapet', avatarInitials: 'SP' },
+    { name: 'dhanush', email: 'dhanush@mandimind.demo', passwordHash, role: 'farmer', location: 'Telangana', avatarInitials: 'DH' },
+  ]);
+
+  // Direct buyers
+  const [buyer1, buyer2, buyer3, buyer4] = await User.create([
+    { name: 'Hyderabad Fresh Foods', email: 'buyer@mandimind.demo', passwordHash, role: 'buyer', location: 'Hyderabad', avatarInitials: 'HF' },
+    { name: 'Delhi National Produce Corp', email: 'buyer2@mandimind.demo', passwordHash, role: 'buyer', location: 'Delhi', avatarInitials: 'DN' },
+    { name: 'Deccan Agro Processors & Sauces', email: 'processor@mandimind.demo', passwordHash, role: 'buyer', location: 'Hyderabad', avatarInitials: 'DA' },
+    { name: 'Green Leaf Farm-to-Table Kitchen', email: 'restaurant@mandimind.demo', passwordHash, role: 'buyer', location: 'Secunderabad', avatarInitials: 'GL' },
   ]);
 
   await FarmerProfile.create({
@@ -89,7 +106,7 @@ export async function seed({ force = false } = {}) {
     irrigation: 'drip',
     budgetInr: 90000,
     season: 'kharif',
-    preferredCrops: ['tomato', 'chilli', 'onion'],
+    preferredCrops: ['potato', 'tomato', 'onion'],
   });
 
   await SellerProfile.create({
@@ -184,46 +201,74 @@ export async function seed({ force = false } = {}) {
   await Purchase.insertMany(purchases);
 
   await Inventory.create([
+    { seller: seller._id, commodity: bySlug.potato._id, quantityKg: 1000, ageDays: 4, unitCostInr: 22, dataStatus: 'SIMULATED' },
     { seller: seller._id, commodity: bySlug.tomato._id, quantityKg: 180, ageDays: 2, unitCostInr: 24, dataStatus: 'SIMULATED' },
     { seller: seller._id, commodity: bySlug.onion._id, quantityKg: 620, ageDays: 8, unitCostInr: 21, dataStatus: 'SIMULATED' },
-    { seller: seller._id, commodity: bySlug.potato._id, quantityKg: 910, ageDays: 12, unitCostInr: 18, dataStatus: 'SIMULATED' },
     { seller: seller._id, commodity: bySlug.chilli._id, quantityKg: 140, ageDays: 4, unitCostInr: 46, dataStatus: 'SIMULATED' },
     { seller: seller._id, commodity: bySlug.spinach._id, quantityKg: 55, ageDays: 1, unitCostInr: 15, dataStatus: 'SIMULATED' },
   ]);
 
   await Alert.create([
-    { role: 'seller', severity: 'moderate', title: 'Tomato oversupply risk increased 18%', body: 'Arrivals at Kothapet and Gaddiannaram are trending above the 14-day median.', commodity: 'tomato', dataStatus: 'SIMULATED' },
-    { role: 'seller', severity: 'info', title: 'Onion demand expected to increase tomorrow', body: 'Day-of-week and festival adjacency lift expected demand in Hyderabad.', commodity: 'onion', dataStatus: 'AI_FORECAST' },
-    { role: 'seller', severity: 'high', title: 'Spinach spoilage risk is high', body: 'Leafy stock is 1 day old with humidity above 70%. Prioritise sale today.', commodity: 'spinach', dataStatus: 'SIMULATED' },
-    { role: 'farmer', severity: 'info', title: 'Tomato demand is strong this week', body: 'Nearby mandis show firm prices and below-average arrivals.', commodity: 'tomato', dataStatus: 'AI_FORECAST' },
-    { role: 'admin', severity: 'moderate', title: 'Price anomaly in chilli at Vashi', body: 'Modal price moved more than 2.5σ versus the trailing 21-day mean.', commodity: 'chilli', dataStatus: 'SIMULATED' },
+    { role: 'seller', severity: 'moderate', title: 'Potato demand firm in Hyderabad market', body: 'Steady wholesale requirement from institutional buyers.', commodity: 'potato', dataStatus: 'SIMULATED' },
+    { role: 'farmer', severity: 'info', title: 'Target Reached for 1,000 kg Potato Supply Pool', body: 'Ravi Reddy and dhanush have completed target collection for Hyderabad Fresh Foods.', commodity: 'potato', dataStatus: 'AI_FORECAST' },
+    { role: 'buyer', severity: 'info', title: 'Potato Supply Pool ready for confirmation', body: '1,000 kg collected from 2 participating farmers at ₹30/kg.', commodity: 'potato', dataStatus: 'SIMULATED' },
   ]);
 
   await ModelPerformance.create([
     { modelName: 'demand_xgb', metric: 'MAE', baselineValue: 62.4, mandimindValue: 41.1, notes: 'Naive baseline: tomorrow = today. Held-out last 14 days of demo series.', dataStatus: 'HISTORICAL' },
-    { modelName: 'demand_xgb', metric: 'RMSE', baselineValue: 81.2, mandimindValue: 54.8, notes: 'Demo series only — not a live production claim.', dataStatus: 'HISTORICAL' },
-    { modelName: 'price_xgb', metric: 'MAE', baselineValue: 2.85, mandimindValue: 1.94, notes: 'INR/kg. Naive baseline vs gradient boosting.', dataStatus: 'HISTORICAL' },
     { modelName: 'price_xgb', metric: 'MAPE', baselineValue: 9.6, mandimindValue: 6.4, notes: 'Percent. Demo evaluation split.', dataStatus: 'HISTORICAL' },
-    { modelName: 'supply_xgb', metric: 'MAE', baselineValue: 118, mandimindValue: 79, notes: 'kg arrivals. Seasonal naive vs boosting.', dataStatus: 'HISTORICAL' },
   ]);
 
-  // ─── Marketplace seed data ──────────────────────────────────────
+  // ─── DEMO PRODUCE LISTINGS ──────────────────────────────────────
 
-  // Additional farmers for multi-farmer aggregation testing
-  const [farmer2] = await User.create([
-    { name: 'Suresh Patel', email: 'farmer2@mandimind.demo', passwordHash, role: 'farmer', location: 'Suryapet', avatarInitials: 'SP' },
-  ]);
+  // Ravi Reddy: 900 kg Potato
+  const listing_potato_ravi = await ProduceListing.create({
+    farmer: farmer._id,
+    commodity: bySlug.potato._id,
+    commodityName: 'Potato',
+    quantityKg: 900,
+    unit: 'kg',
+    qualityGrade: 'A',
+    harvestDate: new Date(today.getTime() - 2 * 86400000),
+    expectedPriceInr: 30,
+    minimumPriceInr: 27,
+    location: 'Nalgonda',
+    lat: 17.0575,
+    lng: 79.2671,
+    availableFrom: today,
+    deliveryPreference: 'both',
+    tradePreference: 'pool',
+    packagingType: 'gunny_bag',
+    availableQuantityKg: 0,
+    status: 'matched',
+    dataStatus: 'SIMULATED',
+  });
 
-  // Direct buyers: Retailer, Organic Kitchen/Restaurant, Food Processing Enterprise, and Distant Wholesaler
-  const [buyer1, buyer2, buyer3, buyer4] = await User.create([
-    { name: 'Hyderabad Fresh Supermarkets', email: 'buyer@mandimind.demo', passwordHash, role: 'buyer', location: 'Hyderabad', avatarInitials: 'HF' },
-    { name: 'Delhi National Produce Corp', email: 'buyer2@mandimind.demo', passwordHash, role: 'buyer', location: 'Delhi', avatarInitials: 'DN' },
-    { name: 'Deccan Agro Processors & Sauces', email: 'processor@mandimind.demo', passwordHash, role: 'buyer', location: 'Hyderabad', avatarInitials: 'DA' },
-    { name: 'Green Leaf Farm-to-Table Kitchen', email: 'restaurant@mandimind.demo', passwordHash, role: 'buyer', location: 'Secunderabad', avatarInitials: 'GL' },
-  ]);
+  // dhanush: 100 kg Potato
+  const listing_potato_dhanush = await ProduceListing.create({
+    farmer: farmer3_dhanush._id,
+    commodity: bySlug.potato._id,
+    commodityName: 'Potato',
+    quantityKg: 100,
+    unit: 'kg',
+    qualityGrade: 'A',
+    harvestDate: new Date(today.getTime() - 1 * 86400000),
+    expectedPriceInr: 30,
+    minimumPriceInr: 27,
+    location: 'Telangana',
+    lat: 17.215,
+    lng: 79.125,
+    availableFrom: today,
+    deliveryPreference: 'both',
+    tradePreference: 'pool',
+    packagingType: 'gunny_bag',
+    availableQuantityKg: 0,
+    status: 'matched',
+    dataStatus: 'SIMULATED',
+  });
 
-  // Farmer produce listings
-  const listing1 = await ProduceListing.create({
+  // Direct Trade listings
+  const listing_tomato_ravi = await ProduceListing.create({
     farmer: farmer._id,
     commodity: bySlug.tomato._id,
     commodityName: 'Tomato',
@@ -244,198 +289,145 @@ export async function seed({ force = false } = {}) {
     dataStatus: 'SIMULATED',
   });
 
-  const listing2 = await ProduceListing.create({
-    farmer: farmer._id,
-    commodity: bySlug.onion._id,
-    commodityName: 'Onion',
-    quantityKg: 350,
-    unit: 'kg',
+  // ─── BUYER REQUIREMENTS ──────────────────────────────────────
+
+  // Main Potato Requirement for Hyderabad Fresh Foods (1,000 kg)
+  const req_potato_bulk = await BuyerRequirement.create({
+    buyer: buyer1._id,
+    commodity: bySlug.potato._id,
+    commodityName: 'Potato',
+    quantityKg: 1000,
     qualityGrade: 'A',
-    harvestDate: new Date(today.getTime() - 2 * 86400000),
-    expectedPriceInr: 26,
-    minimumPriceInr: 23,
-    location: 'Nalgonda',
-    lat: 17.0575,
-    lng: 79.2671,
-    availableFrom: today,
-    deliveryPreference: 'both',
-    tradePreference: 'pool',
-    packagingType: 'gunny_bag',
-    availableQuantityKg: 350,
+    maximumPriceInr: 30,
+    deliveryLocation: 'Hyderabad Fresh Foods',
+    deliveryLat: 17.385,
+    deliveryLng: 78.4867,
+    buyerType: 'retailer',
+    allowPoolAggregation: true,
+    requiredByDate: new Date(today.getTime() + 2 * 86400000),
     dataStatus: 'SIMULATED',
   });
 
-  const listing2_suresh = await ProduceListing.create({
-    farmer: farmer2._id,
-    commodity: bySlug.onion._id,
-    commodityName: 'Onion',
-    quantityKg: 450,
-    unit: 'kg',
-    qualityGrade: 'A',
-    harvestDate: new Date(today.getTime() - 1 * 86400000),
-    expectedPriceInr: 25.5,
-    minimumPriceInr: 23,
-    location: 'Suryapet',
-    lat: 17.1439,
-    lng: 79.6239,
-    availableFrom: today,
-    deliveryPreference: 'both',
-    tradePreference: 'pool',
-    packagingType: 'gunny_bag',
-    availableQuantityKg: 450,
-    dataStatus: 'SIMULATED',
-  });
-
-  const listing3 = await ProduceListing.create({
-    farmer: farmer._id,
-    commodity: bySlug.chilli._id,
-    commodityName: 'Chilli',
-    quantityKg: 200,
-    unit: 'kg',
-    qualityGrade: 'B',
-    harvestDate: new Date(today.getTime() - 3 * 86400000),
-    expectedPriceInr: 55,
-    minimumPriceInr: 48,
-    location: 'Nalgonda',
-    lat: 17.0575,
-    lng: 79.2671,
-    availableFrom: today,
-    deliveryPreference: 'both',
-    packagingType: 'ventilated_box',
-    availableQuantityKg: 200,
-    dataStatus: 'SIMULATED',
-  });
-
-  const listing4_spinach = await ProduceListing.create({
-    farmer: farmer._id,
-    commodity: bySlug.spinach._id,
-    commodityName: 'Spinach',
-    quantityKg: 150,
-    unit: 'kg',
-    qualityGrade: 'A',
-    harvestDate: new Date(),
-    expectedPriceInr: 20,
-    minimumPriceInr: 17,
-    location: 'Nalgonda',
-    lat: 17.0575,
-    lng: 79.2671,
-    availableFrom: today,
-    deliveryPreference: 'both',
-    packagingType: 'refrigerated_box',
-    availableQuantityKg: 150,
-    dataStatus: 'SIMULATED',
-  });
-
-  // Buyer requirements
-  // 1. Local Tomato requirement (Hyderabad - 95km)
-  const req1_local_tomato = await BuyerRequirement.create({
+  // Direct Tomato Requirement
+  const req_tomato_direct = await BuyerRequirement.create({
     buyer: buyer1._id,
     commodity: bySlug.tomato._id,
     commodityName: 'Tomato',
     quantityKg: 500,
     qualityGrade: 'A',
     maximumPriceInr: 30,
-    deliveryLocation: 'Hyderabad',
+    deliveryLocation: 'Hyderabad Fresh Foods',
     deliveryLat: 17.385,
     deliveryLng: 78.4867,
     buyerType: 'retailer',
-    requiredByDate: new Date(today.getTime() + 2 * 86400000),
-    dataStatus: 'SIMULATED',
-  });
-
-  // 2. Distant Tomato requirement with artificially high price (Delhi - 1500km)
-  const req2_distant_tomato = await BuyerRequirement.create({
-    buyer: buyer2._id,
-    commodity: bySlug.tomato._id,
-    commodityName: 'Tomato',
-    quantityKg: 1000,
-    qualityGrade: 'A',
-    maximumPriceInr: 36, // Higher gross price, but high transport & spoilage
-    deliveryLocation: 'Delhi',
-    deliveryLat: 28.6139,
-    deliveryLng: 77.209,
-    buyerType: 'wholesaler',
-    requiredByDate: new Date(today.getTime() + 4 * 86400000),
-    dataStatus: 'SIMULATED',
-  });
-
-  // 3. Bulk Onion requirement (1000kg) allowing Supply Pooling
-  const req3_bulk_onion = await BuyerRequirement.create({
-    buyer: buyer3._id,
-    commodity: bySlug.onion._id,
-    commodityName: 'Onion',
-    quantityKg: 1000,
-    qualityGrade: 'Any',
-    maximumPriceInr: 28,
-    deliveryLocation: 'Hyderabad',
-    deliveryLat: 17.385,
-    deliveryLng: 78.4867,
-    buyerType: 'processor',
-    allowPoolAggregation: true,
     requiredByDate: new Date(today.getTime() + 3 * 86400000),
     dataStatus: 'SIMULATED',
   });
 
-  // Pre-seed a Supply Pool for the bulk Onion requirement
+  // ─── SUPPLY POOL (Potato 1,000 / 1,000 kg Collected — Target Reached) ───
+
+  const contributors = [
+    {
+      farmer: farmer._id,
+      farmerName: 'Ravi Reddy',
+      listing: listing_potato_ravi._id,
+      quantityKg: 900,
+      verifiedQuantityKg: 900,
+      offeredPriceInr: 30,
+      agreedPriceInr: 30,
+      grossAmountInr: 27000,
+      qualityGrade: 'A',
+      location: 'Nalgonda',
+      lat: 17.0575,
+      lng: 79.2671,
+      pickupStatus: 'scheduled',
+      settlementStatus: 'pending',
+      status: 'committed',
+    },
+    {
+      farmer: farmer3_dhanush._id,
+      farmerName: 'dhanush',
+      listing: listing_potato_dhanush._id,
+      quantityKg: 100,
+      verifiedQuantityKg: 100,
+      offeredPriceInr: 30,
+      agreedPriceInr: 30,
+      grossAmountInr: 3000,
+      qualityGrade: 'A',
+      location: 'Telangana',
+      lat: 17.215,
+      lng: 79.125,
+      pickupStatus: 'scheduled',
+      settlementStatus: 'pending',
+      status: 'committed',
+    },
+  ];
+
+  const logPlan = calculateMultiStopLogisticsPlan({
+    contributors,
+    destination: {
+      lat: 17.385,
+      lng: 78.4867,
+      location: 'Hyderabad Fresh Foods',
+      buyerName: 'Hyderabad Fresh Foods',
+    },
+    commodityName: 'Potato',
+    preferredVehicleType: 'standard',
+  });
+
   const pool1 = await SupplyPool.create({
-    buyerRequirement: req3_bulk_onion._id,
-    commodity: bySlug.onion._id,
-    commodityName: 'Onion',
-    qualityGrade: 'Any',
+    poolCode: 'SP-001',
+    buyerRequirement: req_potato_bulk._id,
+    buyer: buyer1._id,
+    buyerName: 'Hyderabad Fresh Foods',
+    commodity: bySlug.potato._id,
+    commodityName: 'Potato',
+    qualityGrade: 'A',
     targetQuantityKg: 1000,
-    collectedQuantityKg: 800,
-    targetPriceInr: 28,
-    averageFarmerPriceInr: 25.75,
-    destinationLocation: 'Hyderabad',
+    collectedQuantityKg: 1000,
+    targetPriceInr: 30,
+    averageFarmerPriceInr: 30,
+    totalPoolValueInr: 30000,
+    destinationLocation: 'Hyderabad Fresh Foods',
     destinationLat: 17.385,
     destinationLng: 78.4867,
-    status: 'open',
-    contributors: [
-      {
-        farmer: farmer._id,
-        listing: listing2._id,
-        quantityKg: 350,
-        offeredPriceInr: 26,
-        qualityGrade: 'A',
-        location: 'Nalgonda',
-        lat: 17.0575,
-        lng: 79.2671,
-        status: 'committed',
-      },
-      {
-        farmer: farmer2._id,
-        listing: listing2_suresh._id,
-        quantityKg: 450,
-        offeredPriceInr: 25.5,
-        qualityGrade: 'A',
-        location: 'Suryapet',
-        lat: 17.1439,
-        lng: 79.6239,
-        status: 'committed',
-      },
-    ],
+    status: 'target_reached',
+    contributors,
     consolidatedLogistics: {
-      totalDistanceKm: 110,
-      estimatedTravelTimeMin: 145,
-      totalTransportCostInr: 1750,
-      transportCostPerKg: 2.18,
-      vehicleType: 'standard',
-      spoilageRisk: 'LOW',
-      routeWaypoints: [
-        { farmerName: 'Ravi Reddy', location: 'Nalgonda', lat: 17.0575, lng: 79.2671, pickupQtyKg: 350, sequence: 1 },
-        { farmerName: 'Suresh Patel', location: 'Suryapet', lat: 17.1439, lng: 79.6239, pickupQtyKg: 450, sequence: 2 },
-      ],
+      totalDistanceKm: logPlan.distanceKm,
+      estimatedTravelTimeMin: logPlan.estimatedTravelTimeMin,
+      totalTransportCostInr: logPlan.totalTransportCostInr,
+      transportCostPerKg: logPlan.transportCostPerKg,
+      individualTransportEstimateInr: logPlan.individualTransportEstimateInr,
+      consolidatedSavingsInr: logPlan.consolidatedSavingsInr,
+      routeWaypoints: logPlan.routeWaypoints,
+      vehicleType: logPlan.vehicle.vehicleType,
+      vehicleCapacityKg: logPlan.vehicle.capacityKg,
+      spoilageRisk: logPlan.spoilageRisk.riskScore,
+      spoilageAdvisory: logPlan.spoilageRisk.advisoryNote,
     },
     intermediaryReduction: {
       commercialLayersCount: 0,
-      serviceProviders: ['Direct Transport Logistics', 'FPO Quality Cell'],
-      estimatedSavingsPct: 22.4,
+      serviceProviders: ['Direct Transport Carrier', 'Consolidated Cluster Pickup'],
+      estimatedSavingsPct: 22.5,
     },
-    notes: 'Aggregated FPO collection route across Nalgonda-Suryapet belt for Deccan Agro Processors.',
+    timeline: [
+      {
+        status: 'open',
+        title: 'Supply Pool Created',
+        description: 'Coordinated supply pool created for Hyderabad Fresh Foods (1,000 kg Potato @ ₹30/kg).',
+      },
+      {
+        status: 'target_reached',
+        title: 'Target Reached',
+        description: '1,000 kg collected (Ravi Reddy 900 kg, dhanush 100 kg). Ready for buyer confirmation.',
+      },
+    ],
+    notes: 'Aggregated potato supply pool fulfilling Hyderabad Fresh Foods bulk procurement.',
     dataStatus: 'SIMULATED',
   });
 
-  console.log('[mandimind] seed complete — SIMULATED DEMO DATA WITH TRADE VIABILITY & SUPPLY POOLS');
+  console.log('[mandimind] seed complete — POTATO DEMO SUPPLY POOL (TARGET REACHED: Ravi Reddy 900kg + dhanush 100kg for Hyderabad Fresh Foods)');
 }
 
 if (process.argv[1]?.includes('seed.js')) {

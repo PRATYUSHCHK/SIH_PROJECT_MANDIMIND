@@ -12,6 +12,7 @@ import {
   WeatherRecord,
   User,
   SupplyPool,
+  Shipment,
 } from '../models/index.js';
 
 import { mlClient } from '../services/mlClient.js';
@@ -25,6 +26,7 @@ import {
   getCommodityProfile,
   haversineKm,
   findConsolidationOpportunities,
+  calculateMultiStopLogisticsPlan,
 } from '../services/tradeViabilityService.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────
@@ -624,23 +626,48 @@ export const createSupplyPool = asyncHandler(async (req, res) => {
     notes,
   } = req.body;
 
+  let buyerId = req.user._id;
+  let buyerName = req.user.name;
+
+  if (buyerRequirementId) {
+    const requirement = await BuyerRequirement.findById(buyerRequirementId).populate('buyer', 'name location');
+    if (requirement) {
+      buyerId = requirement.buyer?._id || requirement.buyer;
+      buyerName = requirement.buyer?.name || requirement.deliveryLocation || 'Verified Buyer';
+    }
+  }
+
+  const poolCode = `SP-${Math.floor(100 + Math.random() * 900)}`;
+
   const pool = await SupplyPool.create({
+    poolCode,
     buyerRequirement: buyerRequirementId,
+    buyer: buyerId,
+    buyerName,
     commodity: commodityId,
     commodityName,
     targetQuantityKg: Number(targetQuantityKg),
     collectedQuantityKg: 0,
     targetPriceInr: Number(targetPriceInr),
     averageFarmerPriceInr: Number(targetPriceInr),
-    destinationLocation,
+    totalPoolValueInr: Number(targetQuantityKg) * Number(targetPriceInr),
+    destinationLocation: destinationLocation || 'Hyderabad',
     destinationLat: destinationLat || 17.385,
     destinationLng: destinationLng || 78.487,
     deliveryDeadline,
+    status: 'open',
+    timeline: [
+      {
+        status: 'open',
+        title: 'Supply Pool Created',
+        description: `Coordinated aggregation open for ${targetQuantityKg} kg ${commodityName} at ₹${targetPriceInr}/kg.`,
+      },
+    ],
     notes: notes || '',
     fpoCoordinator: req.user._id,
     intermediaryReduction: {
       commercialLayersCount: 0,
-      serviceProviders: ['Direct Transport', 'FPO Collection Hub'],
+      serviceProviders: ['Direct Transport Carrier', 'Aggregated Cluster Pickup'],
       estimatedSavingsPct: 22.0,
     },
     dataStatus: 'SIMULATED',
@@ -656,8 +683,12 @@ export const getSupplyPools = asyncHandler(async (req, res) => {
 
   const pools = await SupplyPool.find(filter)
     .populate('buyerRequirement')
+    .populate('buyer', 'name location email avatarInitials')
     .populate('commodity', 'name slug perishability')
-    .populate('contributors.farmer', 'name location')
+    .populate('contributors.farmer', 'name location avatarInitials')
+    .populate('contributors.listing')
+    .populate('poolTransaction')
+    .populate('shipment')
     .populate('fpoCoordinator', 'name location')
     .sort({ createdAt: -1 });
 
@@ -667,9 +698,12 @@ export const getSupplyPools = asyncHandler(async (req, res) => {
 export const getSupplyPoolById = asyncHandler(async (req, res) => {
   const pool = await SupplyPool.findById(req.params.id)
     .populate('buyerRequirement')
+    .populate('buyer', 'name location email avatarInitials')
     .populate('commodity', 'name slug perishability')
-    .populate('contributors.farmer', 'name location')
-    .populate('contributors.listing');
+    .populate('contributors.farmer', 'name location avatarInitials')
+    .populate('contributors.listing')
+    .populate('poolTransaction')
+    .populate('shipment');
 
   if (!pool) throw new AppError('Supply pool not found', 404);
   res.json({ dataStatus: 'SIMULATED', pool });
@@ -679,12 +713,15 @@ export const contributeToSupplyPool = asyncHandler(async (req, res) => {
   const { quantityKg, listingId, offeredPriceInr } = req.body;
   const pool = await SupplyPool.findById(req.params.id);
   if (!pool) throw new AppError('Supply pool not found', 404);
+
   if (pool.status !== 'open' && pool.status !== 'target_reached') {
     throw new AppError('Supply pool is no longer accepting contributions', 400);
   }
 
   const qty = Number(quantityKg);
   if (qty <= 0) throw new AppError('Contribution quantity must be greater than 0', 400);
+
+  const price = Number(offeredPriceInr || pool.targetPriceInr);
 
   const listing = listingId ? await ProduceListing.findById(listingId) : null;
   if (listing) {
@@ -697,56 +734,653 @@ export const contributeToSupplyPool = asyncHandler(async (req, res) => {
     await listing.save();
   }
 
-  // Add contributor
-  pool.contributors.push({
-    farmer: req.user._id,
-    listing: listingId || undefined,
-    quantityKg: qty,
-    offeredPriceInr: Number(offeredPriceInr || pool.targetPriceInr),
-    qualityGrade: listing?.qualityGrade || 'A',
-    location: listing?.location || req.user.location || 'Local Farm',
-    lat: listing?.lat || 17.0575,
-    lng: listing?.lng || 79.2671,
-    status: 'committed',
-  });
+  // Check if farmer already contributed - update if so, or append
+  const existingIdx = pool.contributors.findIndex(
+    (c) => c.farmer && c.farmer.toString() === req.user._id.toString()
+  );
 
-  // Re-calculate totals and average price
+  if (existingIdx >= 0) {
+    pool.contributors[existingIdx].quantityKg += qty;
+    pool.contributors[existingIdx].offeredPriceInr = price;
+    pool.contributors[existingIdx].agreedPriceInr = price;
+    pool.contributors[existingIdx].grossAmountInr = pool.contributors[existingIdx].quantityKg * price;
+  } else {
+    pool.contributors.push({
+      farmer: req.user._id,
+      farmerName: req.user.name || 'Farmer',
+      listing: listingId || undefined,
+      quantityKg: qty,
+      verifiedQuantityKg: qty,
+      offeredPriceInr: price,
+      agreedPriceInr: price,
+      grossAmountInr: qty * price,
+      qualityGrade: listing?.qualityGrade || 'A',
+      location: listing?.location || req.user.location || 'Local Farm',
+      lat: listing?.lat || 17.0575,
+      lng: listing?.lng || 79.2671,
+      pickupStatus: 'scheduled',
+      settlementStatus: 'pending',
+      status: 'committed',
+    });
+  }
+
+  // Re-calculate totals
   pool.collectedQuantityKg = pool.contributors.reduce((s, c) => s + c.quantityKg, 0);
   const totalValue = pool.contributors.reduce((s, c) => s + c.quantityKg * c.offeredPriceInr, 0);
   pool.averageFarmerPriceInr = pool.collectedQuantityKg > 0 ? Number((totalValue / pool.collectedQuantityKg).toFixed(2)) : pool.targetPriceInr;
+  pool.totalPoolValueInr = pool.collectedQuantityKg * pool.targetPriceInr;
 
-  if (pool.collectedQuantityKg >= pool.targetQuantityKg) {
-    pool.status = 'target_reached';
-  }
-
-  // Recalculate consolidated logistics
-  const waypoints = pool.contributors.map((c, idx) => ({
-    farmerName: c.location || `Farmer ${idx + 1}`,
-    location: c.location,
-    lat: c.lat,
-    lng: c.lng,
-    pickupQtyKg: c.quantityKg,
-    sequence: idx + 1,
-  }));
-
-  const avgLat = pool.contributors.reduce((s, c) => s + c.lat, 0) / pool.contributors.length;
-  const avgLng = pool.contributors.reduce((s, c) => s + c.lng, 0) / pool.contributors.length;
-  const dist = haversineKm(avgLat, avgLng, pool.destinationLat, pool.destinationLng);
-  const log = calculateLogisticsCost({ distanceKm: dist + 20, quantityKg: pool.collectedQuantityKg });
+  // Multi-stop logistics calculation
+  const logisticsPlan = calculateMultiStopLogisticsPlan({
+    contributors: pool.contributors,
+    destination: {
+      lat: pool.destinationLat || 17.385,
+      lng: pool.destinationLng || 78.487,
+      location: pool.destinationLocation,
+      buyerName: pool.buyerName,
+    },
+    commodityName: pool.commodityName,
+    preferredVehicleType: 'standard',
+  });
 
   pool.consolidatedLogistics = {
-    totalDistanceKm: dist,
-    estimatedTravelTimeMin: log.etaMinutes,
-    totalTransportCostInr: log.totalTransportCostInr,
-    transportCostPerKg: log.transportCostPerKg,
-    routeWaypoints: waypoints,
-    vehicleType: 'standard',
-    spoilageRisk: 'LOW',
+    totalDistanceKm: logisticsPlan.distanceKm,
+    estimatedTravelTimeMin: logisticsPlan.estimatedTravelTimeMin,
+    totalTransportCostInr: logisticsPlan.totalTransportCostInr,
+    transportCostPerKg: logisticsPlan.transportCostPerKg,
+    individualTransportEstimateInr: logisticsPlan.individualTransportEstimateInr,
+    consolidatedSavingsInr: logisticsPlan.consolidatedSavingsInr,
+    routeWaypoints: logisticsPlan.routeWaypoints,
+    vehicleType: logisticsPlan.vehicle.vehicleType,
+    vehicleCapacityKg: logisticsPlan.vehicle.capacityKg,
+    spoilageRisk: logisticsPlan.spoilageRisk.riskScore,
+    spoilageAdvisory: logisticsPlan.spoilageRisk.advisoryNote,
   };
+
+  // State Transition Check
+  if (pool.collectedQuantityKg >= pool.targetQuantityKg) {
+    pool.status = 'target_reached';
+    const hasTargetReachedTimeline = pool.timeline.some((t) => t.status === 'target_reached');
+    if (!hasTargetReachedTimeline) {
+      pool.timeline.push({
+        status: 'target_reached',
+        title: 'Target Reached',
+        description: `Target ${pool.targetQuantityKg} kg collected across ${pool.contributors.length} participating farmers. Awaiting buyer confirmation.`,
+      });
+    }
+  }
 
   await pool.save();
 
-  res.json({ dataStatus: 'SIMULATED', message: 'Contribution added to pool successfully', pool });
+  res.json({
+    dataStatus: 'SIMULATED',
+    message: pool.status === 'target_reached'
+      ? 'Target reached! The required quantity has been collected and is ready for buyer confirmation.'
+      : 'Contribution added to pool successfully.',
+    pool,
+  });
+});
+
+/**
+ * Buyer confirms the pooled supply.
+ * Idempotent: Creates parent Pool Transaction and Consolidated Shipment only if not already existing.
+ */
+export const confirmSupplyPool = asyncHandler(async (req, res) => {
+  const pool = await SupplyPool.findById(req.params.id)
+    .populate('buyerRequirement')
+    .populate('buyer', 'name location email')
+    .populate('contributors.farmer', 'name location email');
+
+  if (!pool) throw new AppError('Supply pool not found', 404);
+
+  // Validate state
+  if (pool.status !== 'target_reached' && pool.status !== 'buyer_confirmation_pending' && pool.status !== 'open') {
+    if (pool.status === 'buyer_confirmed' || pool.status === 'logistics_planned' || pool.status === 'in_transit' || pool.status === 'delivered' || pool.status === 'completed') {
+      const existingTx = pool.poolTransaction ? await Transaction.findById(pool.poolTransaction) : null;
+      const existingShipment = pool.shipment ? await Shipment.findById(pool.shipment) : null;
+      return res.json({
+        dataStatus: 'SIMULATED',
+        message: 'Supply pool order already confirmed.',
+        pool,
+        transaction: existingTx,
+        shipment: existingShipment,
+      });
+    }
+    throw new AppError(`Cannot confirm pool with status: ${pool.status}`, 400);
+  }
+
+  if (pool.collectedQuantityKg < pool.targetQuantityKg && pool.status === 'open') {
+    throw new AppError(`Cannot confirm pool before reaching target quantity (${pool.collectedQuantityKg}/${pool.targetQuantityKg} kg collected)`, 400);
+  }
+
+  // Authorization: buyer or admin
+  const isBuyer = (pool.buyer?._id && pool.buyer._id.toString() === req.user._id.toString()) || pool.buyer?.toString() === req.user._id.toString();
+  const isAdmin = req.user.role === 'admin';
+  if (!isBuyer && !isAdmin) {
+    throw new AppError('Only the buyer or admin can confirm this pooled order', 403);
+  }
+
+  // Calculate logistics plan
+  const logisticsPlan = calculateMultiStopLogisticsPlan({
+    contributors: pool.contributors,
+    destination: {
+      lat: pool.destinationLat || 17.385,
+      lng: pool.destinationLng || 78.487,
+      location: pool.destinationLocation,
+      buyerName: pool.buyerName || pool.buyer?.name || 'Buyer',
+    },
+    commodityName: pool.commodityName,
+    preferredVehicleType: pool.consolidatedLogistics?.vehicleType || 'standard',
+  });
+
+  // Idempotent Transaction Creation
+  let transaction = null;
+  if (pool.poolTransaction) {
+    transaction = await Transaction.findById(pool.poolTransaction);
+  }
+
+  if (!transaction) {
+    const orderNumber = `MM-POOL-${Math.floor(1000 + Math.random() * 9000)}`;
+    const totalOrderVal = pool.collectedQuantityKg * pool.targetPriceInr;
+    const transportCost = logisticsPlan.totalTransportCostInr;
+    const farmerNet = pool.contributors.reduce((s, c) => s + (c.grossAmountInr || (c.quantityKg * c.offeredPriceInr)), 0);
+
+    const poolContributorsBreakdown = pool.contributors.map((c) => ({
+      farmer: c.farmer?._id || c.farmer,
+      farmerName: c.farmerName || c.farmer?.name || c.location,
+      listing: c.listing,
+      quantityKg: c.quantityKg,
+      verifiedQuantityKg: c.quantityKg,
+      agreedPriceInr: c.offeredPriceInr || pool.targetPriceInr,
+      grossAmountInr: c.grossAmountInr || (c.quantityKg * (c.offeredPriceInr || pool.targetPriceInr)),
+      pickupStatus: 'scheduled',
+      settlementStatus: 'pending',
+    }));
+
+    transaction = await Transaction.create({
+      orderNumber,
+      isPoolOrder: true,
+      tradeType: 'POOL_AGGREGATION',
+      supplyPool: pool._id,
+      requirement: pool.buyerRequirement?._id || pool.buyerRequirement,
+      buyer: pool.buyer?._id || pool.buyer || req.user._id,
+      farmer: pool.contributors[0]?.farmer?._id || pool.contributors[0]?.farmer || req.user._id,
+      commodity: pool.commodity,
+      commodityName: pool.commodityName,
+      quantityKg: pool.collectedQuantityKg,
+      agreedPriceInr: pool.targetPriceInr,
+      totalValueInr: totalOrderVal,
+      transportCostInr: transportCost,
+      farmerNetValueInr: farmerNet,
+      buyerTotalCostInr: totalOrderVal + transportCost,
+      status: 'buyer_confirmed',
+      poolContributors: poolContributorsBreakdown,
+      logistics: {
+        distanceKm: logisticsPlan.distanceKm,
+        estimatedTimeMin: logisticsPlan.estimatedTravelTimeMin,
+        transportCostInr: logisticsPlan.totalTransportCostInr,
+        transportCostPerKg: logisticsPlan.transportCostPerKg,
+        vehicleType: logisticsPlan.vehicle.vehicleType,
+        spoilageRiskScore: logisticsPlan.spoilageRisk.riskScore,
+        pickupLocation: 'Multi-Farmer Cluster',
+        deliveryLocation: pool.destinationLocation,
+        isConsolidated: true,
+        consolidationWaypoints: logisticsPlan.routeWaypoints.map((w) => ({
+          location: w.location,
+          farmerName: w.name,
+          qtyKg: w.pickupQtyKg || 0,
+        })),
+      },
+      priceWaterfall: {
+        buyerPricePerKg: pool.targetPriceInr,
+        farmerRealizationPerKg: pool.averageFarmerPriceInr,
+        logisticsCostPerKg: logisticsPlan.transportCostPerKg,
+        packagingCostPerKg: 0.5,
+        handlingCostPerKg: 0.3,
+        platformServiceFeePerKg: 0,
+      },
+      paymentStatus: 'pending',
+      dataStatus: 'SIMULATED',
+    });
+  }
+
+  // Idempotent Shipment Creation
+  let shipment = null;
+  if (pool.shipment) {
+    shipment = await Shipment.findById(pool.shipment);
+  }
+
+  if (!shipment) {
+    const shipmentNumber = `SHIP-POOL-${Math.floor(1000 + Math.random() * 9000)}`;
+    shipment = await Shipment.create({
+      shipmentNumber,
+      tradeType: 'POOL_AGGREGATION',
+      supplyPool: pool._id,
+      transaction: transaction._id,
+      buyer: pool.buyer?._id || pool.buyer || req.user._id,
+      commodity: pool.commodity,
+      commodityName: pool.commodityName,
+      totalQuantityKg: pool.collectedQuantityKg,
+      vehicle: logisticsPlan.vehicle,
+      pickupStops: logisticsPlan.pickupStops,
+      destination: {
+        buyerName: pool.buyerName || pool.buyer?.name || 'Buyer',
+        location: pool.destinationLocation,
+        lat: pool.destinationLat || 17.385,
+        lng: pool.destinationLng || 78.487,
+      },
+      routeWaypoints: logisticsPlan.routeWaypoints,
+      distanceKm: logisticsPlan.distanceKm,
+      estimatedTravelTimeMin: logisticsPlan.estimatedTravelTimeMin,
+      totalTransportCostInr: logisticsPlan.totalTransportCostInr,
+      transportCostPerKg: logisticsPlan.transportCostPerKg,
+      individualTransportEstimateInr: logisticsPlan.individualTransportEstimateInr,
+      consolidatedSavingsInr: logisticsPlan.consolidatedSavingsInr,
+      spoilageRisk: logisticsPlan.spoilageRisk,
+      status: 'pickup_scheduled',
+      timeline: [
+        {
+          status: 'planned',
+          title: 'Order Confirmed by Buyer',
+          description: `${pool.buyerName || 'Buyer'} confirmed the pooled supply of ${pool.collectedQuantityKg} kg ${pool.commodityName}.`,
+          location: pool.destinationLocation,
+        },
+        {
+          status: 'pickup_scheduled',
+          title: 'Consolidated Vehicle Assigned',
+          description: `${logisticsPlan.vehicle.modelName} assigned with ${logisticsPlan.pickupStops.length} pickup stops.`,
+          location: 'Farm Pickup Cluster',
+        },
+      ],
+      dataStatus: 'SIMULATED',
+    });
+  }
+
+  // Update Pool & Transaction links
+  pool.status = 'buyer_confirmed';
+  pool.poolTransaction = transaction._id;
+  pool.shipment = shipment._id;
+  pool.confirmedAt = new Date();
+
+  const hasConfirmedTimeline = pool.timeline.some((t) => t.status === 'buyer_confirmed');
+  if (!hasConfirmedTimeline) {
+    pool.timeline.push({
+      status: 'buyer_confirmed',
+      title: 'Buyer Confirmed Combined Order',
+      description: `${pool.buyerName || 'Buyer'} confirmed the pooled order. Vehicle assigned for consolidated pickup.`,
+    });
+  }
+
+  transaction.shipment = shipment._id;
+  await transaction.save();
+  await pool.save();
+
+  res.json({
+    dataStatus: 'SIMULATED',
+    message: 'Combined Supply Pool order successfully confirmed and shipment scheduled.',
+    pool,
+    transaction,
+    shipment,
+  });
+});
+
+/**
+ * Update multi-stop pickup status for an individual farmer.
+ * Automatically advances to 'consolidated' when all farmer pickups are completed.
+ */
+export const updatePickupStopStatus = asyncHandler(async (req, res) => {
+  const { stopIndex, status: newStatus } = req.body;
+  const pool = await SupplyPool.findById(req.params.id);
+  if (!pool) throw new AppError('Supply pool not found', 404);
+
+  const shipment = pool.shipment ? await Shipment.findById(pool.shipment) : null;
+  if (!shipment) throw new AppError('Linked shipment not found', 404);
+
+  const idx = Number(stopIndex);
+  if (idx < 0 || idx >= shipment.pickupStops.length) {
+    throw new AppError('Invalid pickup stop index', 400);
+  }
+
+  const validStatuses = ['scheduled', 'pickup_in_progress', 'picked_up'];
+  if (!validStatuses.includes(newStatus)) {
+    throw new AppError('Invalid pickup status', 400);
+  }
+
+  // Update stop in shipment
+  shipment.pickupStops[idx].status = newStatus;
+  if (newStatus === 'picked_up') {
+    shipment.pickupStops[idx].pickedUpAt = new Date();
+  }
+
+  // Update corresponding contributor in pool
+  const farmerId = shipment.pickupStops[idx].farmer.toString();
+  const contributor = pool.contributors.find((c) => c.farmer && c.farmer.toString() === farmerId);
+  if (contributor) {
+    contributor.pickupStatus = newStatus;
+    if (newStatus === 'picked_up') {
+      contributor.pickedUpAt = new Date();
+    }
+  }
+
+  // Check if all stops are picked up
+  const allPickedUp = shipment.pickupStops.every((s) => s.status === 'picked_up');
+  const anyInProgress = shipment.pickupStops.some((s) => s.status === 'pickup_in_progress');
+
+  if (allPickedUp) {
+    shipment.status = 'consolidated';
+    pool.status = 'consolidated';
+    shipment.timeline.push({
+      status: 'consolidated',
+      title: 'Produce Consolidated',
+      description: `All ${shipment.pickupStops.length} farmer pickups completed (${shipment.totalQuantityKg} kg). Vehicle is sealed and ready for dispatch.`,
+      location: 'Consolidation Point',
+    });
+    pool.timeline.push({
+      status: 'consolidated',
+      title: 'Produce Consolidated',
+      description: 'All farmer produce picked up and loaded into single consolidated vehicle.',
+    });
+  } else if (anyInProgress || newStatus === 'picked_up') {
+    shipment.status = 'pickup_in_progress';
+    pool.status = 'pickup_in_progress';
+  }
+
+  await shipment.save();
+  await pool.save();
+
+  // Also update transaction contributor statuses
+  if (pool.poolTransaction) {
+    const tx = await Transaction.findById(pool.poolTransaction);
+    if (tx) {
+      const txContributor = tx.poolContributors?.find((c) => c.farmer && c.farmer.toString() === farmerId);
+      if (txContributor) {
+        txContributor.pickupStatus = newStatus;
+        if (allPickedUp) tx.status = 'consolidated';
+        else if (anyInProgress || newStatus === 'picked_up') tx.status = 'pickup_in_progress';
+        await tx.save();
+      }
+    }
+  }
+
+  res.json({
+    dataStatus: 'SIMULATED',
+    message: allPickedUp ? 'All farmer produce picked up! Shipment is now fully consolidated.' : `Pickup stop ${idx + 1} updated to ${newStatus}.`,
+    pool,
+    shipment,
+  });
+});
+
+/**
+ * Advance Supply Pool Shipment status along the progression lifecycle:
+ * CONSOLIDATED -> IN_TRANSIT -> ARRIVING -> DELIVERED
+ */
+export const advancePoolShipmentStatus = asyncHandler(async (req, res) => {
+  const { nextStatus } = req.body;
+  const pool = await SupplyPool.findById(req.params.id);
+  if (!pool) throw new AppError('Supply pool not found', 404);
+
+  const shipment = pool.shipment ? await Shipment.findById(pool.shipment) : null;
+  if (!shipment) throw new AppError('Linked shipment not found', 404);
+
+  const allowedTransitions = {
+    pickup_scheduled: ['pickup_in_progress'],
+    pickup_in_progress: ['consolidated'],
+    consolidated: ['in_transit'],
+    in_transit: ['arriving', 'delivered'],
+    arriving: ['delivered'],
+    delivered: ['completed'],
+  };
+
+  const allowed = allowedTransitions[shipment.status] || [];
+  if (!allowed.includes(nextStatus)) {
+    throw new AppError(`Cannot advance shipment from ${shipment.status} to ${nextStatus}`, 400);
+  }
+
+  shipment.status = nextStatus;
+  pool.status = nextStatus;
+
+  let timelineTitle = 'Shipment Status Updated';
+  let timelineDesc = `Shipment moved to ${nextStatus.replace('_', ' ')}.`;
+
+  if (nextStatus === 'in_transit') {
+    timelineTitle = 'Shipment In Transit';
+    timelineDesc = `Consolidated vehicle departed for ${shipment.destination.buyerName} (${shipment.destination.location}).`;
+  } else if (nextStatus === 'arriving') {
+    timelineTitle = 'Shipment Arriving';
+    timelineDesc = `Vehicle is within destination perimeter (${shipment.destination.location}).`;
+  } else if (nextStatus === 'delivered') {
+    timelineTitle = 'Shipment Delivered';
+    timelineDesc = `Consolidated produce delivered to ${shipment.destination.buyerName}.`;
+    shipment.deliveryConfirmedAt = new Date();
+    pool.deliveredAt = new Date();
+  }
+
+  shipment.timeline.push({
+    status: nextStatus,
+    title: timelineTitle,
+    description: timelineDesc,
+    location: nextStatus === 'in_transit' ? 'Highway Corridor' : shipment.destination.location,
+  });
+
+  pool.timeline.push({
+    status: nextStatus,
+    title: timelineTitle,
+    description: timelineDesc,
+  });
+
+  await shipment.save();
+  await pool.save();
+
+  if (pool.poolTransaction) {
+    const tx = await Transaction.findById(pool.poolTransaction);
+    if (tx) {
+      tx.status = nextStatus;
+      await tx.save();
+    }
+  }
+
+  res.json({
+    dataStatus: 'SIMULATED',
+    message: `Shipment advanced to ${nextStatus.replace('_', ' ')}.`,
+    pool,
+    shipment,
+  });
+});
+
+/**
+ * Buyer confirms delivery of the pooled shipment.
+ * Sets pool, shipment, and all contributor records to 'delivered' and settlement status to 'ready'.
+ */
+export const confirmPoolDelivery = asyncHandler(async (req, res) => {
+  const pool = await SupplyPool.findById(req.params.id)
+    .populate('buyer', 'name location')
+    .populate('contributors.farmer', 'name location');
+
+  if (!pool) throw new AppError('Supply pool not found', 404);
+
+  const isBuyer = (pool.buyer?._id && pool.buyer._id.toString() === req.user._id.toString()) || pool.buyer?.toString() === req.user._id.toString();
+  const isAdmin = req.user.role === 'admin';
+  if (!isBuyer && !isAdmin) {
+    throw new AppError('Only the buyer or admin can confirm delivery receipt', 403);
+  }
+
+  const shipment = pool.shipment ? await Shipment.findById(pool.shipment) : null;
+  const transaction = pool.poolTransaction ? await Transaction.findById(pool.poolTransaction) : null;
+
+  const now = new Date();
+  pool.status = 'delivered';
+  pool.deliveredAt = now;
+
+  // Mark all contributors verified and settlement ready
+  pool.contributors.forEach((c) => {
+    c.status = 'delivered';
+    c.verifiedQuantityKg = c.quantityKg;
+    c.settlementStatus = 'ready';
+  });
+
+  pool.timeline.push({
+    status: 'delivered',
+    title: 'Delivery Confirmed by Buyer',
+    description: `${pool.buyerName || 'Buyer'} confirmed delivery of ${pool.collectedQuantityKg} kg ${pool.commodityName}. Farmer settlements ready for payout.`,
+  });
+
+  if (shipment) {
+    shipment.status = 'delivered';
+    shipment.deliveryConfirmedAt = now;
+    shipment.timeline.push({
+      status: 'delivered',
+      title: 'Delivery Received & Verified',
+      description: 'Quality and weight verified upon unloading.',
+      location: pool.destinationLocation,
+    });
+    await shipment.save();
+  }
+
+  if (transaction) {
+    transaction.status = 'delivered';
+    if (transaction.poolContributors) {
+      transaction.poolContributors.forEach((c) => {
+        c.verifiedQuantityKg = c.quantityKg;
+        c.settlementStatus = 'ready';
+      });
+    }
+    await transaction.save();
+  }
+
+  await pool.save();
+
+  res.json({
+    dataStatus: 'SIMULATED',
+    message: 'Delivery successfully confirmed! Farmer settlements are now ready for disbursement.',
+    pool,
+    shipment,
+    transaction,
+  });
+});
+
+/**
+ * Execute simulated farmer settlement / payout for the Supply Pool.
+ * Completes the pool, transaction, shipment, and calculates transparent farmer-wise payout.
+ */
+export const settlePoolPayment = asyncHandler(async (req, res) => {
+  const { paymentMethod = 'UPI Multi-Party Disbursement' } = req.body;
+  const pool = await SupplyPool.findById(req.params.id)
+    .populate('buyer', 'name location email')
+    .populate('contributors.farmer', 'name location email');
+
+  if (!pool) throw new AppError('Supply pool not found', 404);
+
+  const shipment = pool.shipment ? await Shipment.findById(pool.shipment) : null;
+  const transaction = pool.poolTransaction ? await Transaction.findById(pool.poolTransaction) : null;
+
+  const now = new Date();
+
+  // Farmer-wise settlement calculation
+  const settlements = pool.contributors.map((c) => {
+    const verifiedQty = c.verifiedQuantityKg || c.quantityKg;
+    const price = c.agreedPriceInr || c.offeredPriceInr || pool.targetPriceInr;
+    const grossPayout = verifiedQty * price;
+    const settleId = `SETTLE-MM-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+    c.settlementStatus = 'settled';
+    c.status = 'completed';
+    c.settledAt = now;
+
+    return {
+      farmerId: c.farmer?._id || c.farmer,
+      farmerName: c.farmerName || c.farmer?.name || 'Farmer',
+      location: c.location,
+      verifiedQuantityKg: verifiedQty,
+      agreedPriceInr: price,
+      grossPayoutInr: grossPayout,
+      settlementStatus: 'COMPLETED (SIMULATED)',
+      settlementTxId: settleId,
+      settledAt: now,
+      note: 'Payment based on verified contribution and agreed price.',
+    };
+  });
+
+  pool.status = 'completed';
+  pool.completedAt = now;
+  pool.timeline.push({
+    status: 'completed',
+    title: 'Farmer-Wise Settlement Completed',
+    description: `All ${pool.contributors.length} farmers settled transparently based on verified delivered quantities.`,
+  });
+
+  if (shipment) {
+    shipment.status = 'completed';
+    await shipment.save();
+  }
+
+  if (transaction) {
+    transaction.status = 'completed';
+    transaction.paymentStatus = 'settled';
+    transaction.paymentMethod = paymentMethod;
+    transaction.paymentId = `POOL-PAY-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+    transaction.paidAt = now;
+    transaction.completedAt = now;
+
+    if (transaction.poolContributors) {
+      transaction.poolContributors.forEach((c, idx) => {
+        const s = settlements[idx];
+        if (s) {
+          c.settlementStatus = 'settled';
+          c.settlementTxId = s.settlementTxId;
+          c.settledAt = now;
+        }
+      });
+    }
+    await transaction.save();
+  }
+
+  await pool.save();
+
+  res.json({
+    dataStatus: 'SIMULATED',
+    message: 'Supply Pool order and farmer-wise settlements completed successfully (SIMULATED PAYMENT).',
+    pool,
+    transaction,
+    shipment,
+    settlements,
+  });
+});
+
+/**
+ * Get Shipments (Direct Trade & Supply Pool)
+ */
+export const getShipments = asyncHandler(async (req, res) => {
+  const role = req.user.role;
+  const filter = {};
+
+  if (req.query.tradeType) filter.tradeType = req.query.tradeType;
+  if (req.query.status) filter.status = req.query.status;
+
+  if (role === 'buyer') {
+    filter.buyer = req.user._id;
+  } else if (role === 'farmer' || role === 'seller') {
+    filter['pickupStops.farmer'] = req.user._id;
+  }
+
+  const shipments = await Shipment.find(filter)
+    .populate('buyer', 'name location email avatarInitials')
+    .populate('supplyPool')
+    .populate('transaction')
+    .populate('pickupStops.farmer', 'name location avatarInitials')
+    .sort({ createdAt: -1 });
+
+  res.json({ dataStatus: 'SIMULATED', badge: dataBadge(), shipments });
+});
+
+export const getShipmentById = asyncHandler(async (req, res) => {
+  const shipment = await Shipment.findById(req.params.id)
+    .populate('buyer', 'name location email avatarInitials')
+    .populate('supplyPool')
+    .populate('transaction')
+    .populate('pickupStops.farmer', 'name location avatarInitials');
+
+  if (!shipment) throw new AppError('Shipment not found', 404);
+  res.json({ dataStatus: 'SIMULATED', shipment });
 });
 
 // ─── FAIR PRICE ───────────────────────────────────────────────────────
@@ -1087,19 +1721,23 @@ export const rejectOffer = asyncHandler(async (req, res) => {
 });
 
 export const getMyTransactions = asyncHandler(async (req, res) => {
-  const filter = {};
+  let filter = {};
   if (req.user.role === 'farmer' || req.user.role === 'seller') {
-    filter.farmer = req.user._id;
+    filter = { $or: [{ farmer: req.user._id }, { 'poolContributors.farmer': req.user._id }] };
   } else if (req.user.role === 'buyer') {
-    filter.buyer = req.user._id;
+    filter = { buyer: req.user._id };
   }
 
   const transactions = await Transaction.find(filter)
     .populate('farmer', 'name location avatarInitials')
     .populate('buyer', 'name location avatarInitials')
-    .populate('commodity', 'name slug')
+    .populate('commodity', 'name slug perishability')
+    .populate('listing')
+    .populate('requirement')
     .populate('offer')
     .populate('supplyPool')
+    .populate('shipment')
+    .populate('poolContributors.farmer', 'name location avatarInitials')
     .sort({ createdAt: -1 });
 
   res.json({ dataStatus: 'SIMULATED', badge: dataBadge(), transactions });

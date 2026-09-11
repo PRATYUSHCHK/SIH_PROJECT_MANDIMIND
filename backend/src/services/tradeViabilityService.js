@@ -394,3 +394,189 @@ export function findConsolidationOpportunities(listings, targetRequirement) {
 
   return clusters;
 }
+
+/**
+ * Calculates a comprehensive multi-stop consolidated logistics plan for a Supply Pool.
+ */
+export function calculateMultiStopLogisticsPlan({
+  contributors = [],
+  destination = { lat: 17.385, lng: 78.487, location: 'Hyderabad', buyerName: 'Buyer' },
+  commodityName = 'Potato',
+  preferredVehicleType = 'standard',
+  ambientTempC = 30,
+}) {
+  if (!contributors || contributors.length === 0) {
+    return {
+      distanceKm: 0,
+      totalTransportCostInr: 0,
+      transportCostPerKg: 0,
+      estimatedTravelTimeMin: 0,
+      individualTransportEstimateInr: 0,
+      consolidatedSavingsInr: 0,
+      pickupStops: [],
+      routeWaypoints: [],
+      vehicleType: preferredVehicleType,
+      spoilageRisk: { riskScore: 'LOW', spoilagePercent: 0.5, expectedLossInr: 0, advisoryNote: '' },
+    };
+  }
+
+  const profile = getCommodityProfile(commodityName);
+  const totalQty = contributors.reduce((s, c) => s + (Number(c.quantityKg) || 0), 0);
+
+  // Vehicle recommendation based on commodity perishability and quantity
+  let recommendedVehicle = preferredVehicleType;
+  if (profile.perishabilityLevel >= 3 && preferredVehicleType === 'standard') {
+    recommendedVehicle = profile.recommendedVehicle || 'ventilated';
+  }
+
+  let capacity = 1200;
+  let modelName = 'Standard Cargo Truck (1.2 Ton)';
+  if (totalQty > 1000 && totalQty <= 2500) {
+    capacity = 3000;
+    modelName = 'Medium Commercial Vehicle (3 Ton)';
+  } else if (totalQty > 2500) {
+    capacity = 5000;
+    modelName = 'Heavy Cargo Carrier (5 Ton)';
+  }
+
+  if (recommendedVehicle === 'refrigerated') {
+    modelName = `Cold-Chain Reefer (${capacity / 1000} Ton)`;
+  } else if (recommendedVehicle === 'ventilated') {
+    modelName = `Ventilated Agrilink Van (${capacity / 1000} Ton)`;
+  }
+
+  // Nearest neighbor route sequencing starting from farthest farmer or geographic cluster
+  const stops = contributors.map((c, idx) => ({
+    farmer: c.farmer?._id || c.farmer,
+    farmerName: c.farmerName || c.farmer?.name || c.location || `Farmer ${idx + 1}`,
+    location: c.location || 'Farm Location',
+    lat: Number(c.lat) || 17.0575,
+    lng: Number(c.lng) || 79.2671,
+    pickupQtyKg: Number(c.quantityKg) || 100,
+    offeredPriceInr: Number(c.offeredPriceInr) || 28,
+    status: c.pickupStatus || 'scheduled',
+    scheduledTime: new Date(Date.now() + (idx + 1) * 3600 * 1000),
+  }));
+
+  // Simple sequencing: sort by distance from destination descending (farthest first)
+  stops.sort((a, b) => {
+    const distA = haversineKm(a.lat, a.lng, destination.lat, destination.lng);
+    const distB = haversineKm(b.lat, b.lng, destination.lat, destination.lng);
+    return distB - distA;
+  });
+
+  // Reassign sequence numbers
+  const sequencedStops = stops.map((s, idx) => ({
+    ...s,
+    sequence: idx + 1,
+  }));
+
+  // Calculate route legs
+  let totalDistance = 0;
+  const routeWaypoints = [];
+
+  for (let i = 0; i < sequencedStops.length; i++) {
+    const current = sequencedStops[i];
+    routeWaypoints.push({
+      name: `Pickup: ${current.farmerName}`,
+      location: current.location,
+      lat: current.lat,
+      lng: current.lng,
+      pickupQtyKg: current.pickupQtyKg,
+      type: 'pickup',
+    });
+
+    if (i < sequencedStops.length - 1) {
+      const next = sequencedStops[i + 1];
+      const legDist = haversineKm(current.lat, current.lng, next.lat, next.lng);
+      totalDistance += legDist;
+    }
+  }
+
+  // Last leg: last pickup to destination
+  const lastStop = sequencedStops[sequencedStops.length - 1];
+  const finalLegDist = haversineKm(lastStop.lat, lastStop.lng, destination.lat, destination.lng);
+  totalDistance += finalLegDist;
+  totalDistance = Math.max(15, Number(totalDistance.toFixed(1)));
+
+  routeWaypoints.push({
+    name: `Destination: ${destination.buyerName || 'Buyer Location'}`,
+    location: destination.location || 'Destination',
+    lat: destination.lat,
+    lng: destination.lng,
+    type: 'destination',
+  });
+
+  // Calculate individual shipping costs (if each farmer hired their own mini-van/vehicle)
+  const individualTransportEstimate = sequencedStops.reduce((sum, s) => {
+    const dist = haversineKm(s.lat, s.lng, destination.lat, destination.lng);
+    const cost = calculateLogisticsCost({
+      distanceKm: dist,
+      quantityKg: s.pickupQtyKg,
+      vehicleType: recommendedVehicle,
+    }).totalTransportCostInr;
+    return sum + cost;
+  }, 0);
+
+  // Consolidated logistics calculation
+  const consolidatedLogistics = calculateLogisticsCost({
+    distanceKm: totalDistance,
+    quantityKg: totalQty,
+    vehicleType: recommendedVehicle,
+  });
+
+  // Dwell time: 25 mins per pickup stop
+  const dwellTimeMin = (sequencedStops.length - 1) * 25;
+  const totalTravelTimeMin = consolidatedLogistics.etaMinutes + dwellTimeMin;
+  const totalTravelHours = Number((totalTravelTimeMin / 60).toFixed(1));
+
+  const totalCost = consolidatedLogistics.totalTransportCostInr;
+  const costPerKg = Number((totalCost / Math.max(1, totalQty)).toFixed(2));
+  const savingsInr = Math.max(0, Number((individualTransportEstimate - totalCost).toFixed(2)));
+
+  // Spoilage risk analysis with multi-stop transit
+  const spoilage = evaluateSpoilageRisk({
+    commodityName,
+    distanceKm: totalDistance,
+    transitTimeHours: totalTravelHours,
+    vehicleType: recommendedVehicle,
+    ambientTempC,
+    quantityKg: totalQty,
+  });
+
+  let spoilageAdvisory = '';
+  if (profile.perishabilityLevel >= 3 && sequencedStops.length > 1) {
+    spoilageAdvisory = `Because this crop is ${profile.perishability.toLowerCase()} perishability and the shipment has ${sequencedStops.length} pickup stops, delivery should be planned carefully to reduce spoilage risk.`;
+  } else if (recommendedVehicle === 'refrigerated') {
+    spoilageAdvisory = 'Refrigerated cold-chain transport can reduce spoilage risk during multi-stop consolidation.';
+  } else {
+    spoilageAdvisory = 'Produce transit time is within optimal freshness threshold for consolidated transport.';
+  }
+
+  return {
+    distanceKm: totalDistance,
+    estimatedTravelTimeMin: totalTravelTimeMin,
+    estimatedTravelHours: totalTravelHours,
+    totalTransportCostInr: totalCost,
+    transportCostPerKg: costPerKg,
+    individualTransportEstimateInr: Number(individualTransportEstimate.toFixed(2)),
+    consolidatedSavingsInr: savingsInr,
+    vehicle: {
+      vehicleType: recommendedVehicle,
+      modelName,
+      capacityKg: capacity,
+      currentLoadKg: totalQty,
+      driverName: 'Ramesh Kumar (Transporter)',
+      contactPhone: '+91 98765 43210',
+      registrationNumber: 'TS 08 UB 4521',
+    },
+    pickupStops: sequencedStops,
+    routeWaypoints,
+    spoilageRisk: {
+      riskScore: spoilage.spoilageRiskScore,
+      spoilagePercent: spoilage.spoilagePercent,
+      expectedLossInr: Number(((spoilage.spoilagePercent / 100) * totalQty * (profile.typicalPriceInr || 28)).toFixed(2)),
+      advisoryNote: spoilageAdvisory,
+    },
+  };
+}

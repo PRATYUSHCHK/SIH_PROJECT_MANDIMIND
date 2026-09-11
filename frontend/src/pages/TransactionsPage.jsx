@@ -6,6 +6,7 @@ import { useTranslation } from '../i18n/index.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { DataStatusBadge } from '../components/DataStatusBadge.jsx';
 import { ErrorState, LoadingSkeleton } from '../components/States.jsx';
+import { SupplyPoolDetailModal } from '../components/SupplyPoolDetailModal.jsx';
 import {
   Receipt,
   IndianRupee,
@@ -24,17 +25,24 @@ import {
   AlertTriangle,
   Printer,
   Sparkles,
+  Users,
+  Navigation,
 } from 'lucide-react';
 
-const STATUS_STEPS = ['listed', 'matched', 'offer_pending', 'accepted', 'logistics_planned', 'in_transit', 'delivered', 'completed'];
+const STATUS_STEPS = ['listed', 'matched', 'offer_pending', 'accepted', 'buyer_confirmed', 'logistics_planned', 'pickup_scheduled', 'pickup_in_progress', 'consolidated', 'in_transit', 'delivered', 'completed'];
 
 const STATUS_CONFIG = {
   listed: { key: 'listed', label: 'Listed', color: 'bg-mute/15 text-mute', icon: Package },
   matched: { key: 'matched', label: 'Matched', color: 'bg-info/15 text-info', icon: Target },
   offer_pending: { key: 'offer_pending', label: 'Offer Pending', color: 'bg-harvest/15 text-harvest', icon: Clock },
   accepted: { key: 'accepted', label: 'Accepted', color: 'bg-forest/15 text-forest', icon: Check },
+  buyer_confirmed: { key: 'buyer_confirmed', label: 'Buyer Confirmed', color: 'bg-forest/15 text-forest', icon: Check },
   logistics_planned: { key: 'logistics_planned', label: 'Logistics Planned', color: 'bg-info/15 text-info', icon: Truck },
+  pickup_scheduled: { key: 'pickup_scheduled', label: 'Pickup Scheduled', color: 'bg-info/15 text-info', icon: Truck },
+  pickup_in_progress: { key: 'pickup_in_progress', label: 'Pickup In Progress', color: 'bg-harvest/15 text-harvest', icon: Truck },
+  consolidated: { key: 'consolidated', label: 'Consolidated', color: 'bg-forest/15 text-forest', icon: Check },
   in_transit: { key: 'in_transit', label: 'In Transit', color: 'bg-harvest/15 text-harvest', icon: Truck },
+  arriving: { key: 'arriving', label: 'Arriving', color: 'bg-harvest/15 text-harvest', icon: Truck },
   delivered: { key: 'delivered', label: 'Delivered', color: 'bg-forest/15 text-forest', icon: Check },
   completed: { key: 'completed', label: 'Completed', color: 'bg-forest text-white', icon: Check },
   rejected: { key: 'rejected', label: 'Rejected', color: 'bg-alert/15 text-alert', icon: X },
@@ -47,7 +55,7 @@ function StatusTimeline({ currentStatus }) {
 
   return (
     <div className="flex items-center gap-1 overflow-x-auto py-2">
-      {STATUS_STEPS.map((step, idx) => {
+      {STATUS_STEPS.slice(2).map((step, idx) => {
         const config = STATUS_CONFIG[step];
         const Icon = config?.icon || Package;
         const isCurrent = step === currentStatus;
@@ -62,8 +70,8 @@ function StatusTimeline({ currentStatus }) {
               <Icon size={10} />
               <span className="hidden sm:inline">{t(`transactions.${step}`, config?.label || step)}</span>
             </div>
-            {idx < STATUS_STEPS.length - 1 && (
-              <div className={`w-3 h-0.5 ${idx < currentIdx ? 'bg-forest dark:bg-harvest' : 'bg-line dark:bg-night-mute/30'}`} />
+            {idx < STATUS_STEPS.length - 3 && (
+              <div className={`w-2.5 h-0.5 ${idx < currentIdx ? 'bg-forest dark:bg-harvest' : 'bg-line dark:bg-night-mute/30'}`} />
             )}
           </div>
         );
@@ -78,14 +86,13 @@ function PaymentModal({ tx, onClose, onSuccess }) {
   const [simulateFail, setSimulateFail] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const [upiId, setUpiId] = useState('buyer@upi');
   const [successData, setSuccessData] = useState(null);
 
   async function handlePay() {
     setBusy(true);
     setErr('');
     try {
-      await new Promise((r) => setTimeout(r, 900));
+      await new Promise((r) => setTimeout(r, 800));
       const { data } = await api.post(`/marketplace/transactions/${tx._id}/pay`, {
         paymentMethod: method === 'upi' ? 'UPI' : method === 'card' ? 'Debit/Credit Card' : 'Net Banking',
         simulateFailure: simulateFail,
@@ -128,16 +135,16 @@ function PaymentModal({ tx, onClose, onSuccess }) {
               <p className="text-xs text-mute mt-1">{t('payment.successSubtitle', 'The transaction has been settled and moved to Completed status.')}</p>
             </div>
 
-            <div className="rounded-xl border border-line/80 bg-earth/40 p-4 text-left dark:border-night-mute/30 dark:bg-night-lift/30 space-y-2">
-              <div className="flex justify-between text-xs">
+            <div className="rounded-xl border border-line/80 bg-earth/40 p-4 text-left dark:border-night-mute/30 dark:bg-night-lift/30 space-y-2 text-xs">
+              <div className="flex justify-between">
                 <span className="text-mute">{t('payment.paymentId', 'Payment ID')}:</span>
                 <span className="font-mono font-bold text-ink dark:text-night-text">{successData.paymentId}</span>
               </div>
-              <div className="flex justify-between text-xs">
+              <div className="flex justify-between">
                 <span className="text-mute">{t('common.commodity', 'Commodity')}:</span>
                 <span className="font-bold text-ink dark:text-night-text">{tx.commodityName} — {tx.quantityKg} kg</span>
               </div>
-              <div className="flex justify-between text-xs">
+              <div className="flex justify-between">
                 <span className="text-mute">{t('common.total', 'Amount Settled')}:</span>
                 <span className="font-bold text-forest dark:text-harvest text-sm">₹{tx.totalValueInr?.toLocaleString('en-IN')}</span>
               </div>
@@ -160,93 +167,31 @@ function PaymentModal({ tx, onClose, onSuccess }) {
                 <strong className="text-ink dark:text-night-text">{tx.commodityName} ({tx.quantityKg} kg)</strong>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-mute">Supplier (Beneficiary):</span>
-                <span className="font-medium text-ink dark:text-night-text">{tx.farmer?.name || 'Farmer'}</span>
-              </div>
-              <div className="flex justify-between items-center text-xs border-t border-line/60 pt-2 dark:border-night-mute/30">
-                <span className="font-bold text-ink dark:text-night-text">{t('payment.amountToPay', 'Amount to Pay')}:</span>
-                <span className="text-base font-extrabold text-forest dark:text-harvest tabular">
+                <span className="text-mute">{t('payment.amountToPay', 'Amount to Pay')}:</span>
+                <span className="text-lg font-extrabold text-forest dark:text-harvest tabular">
                   ₹{tx.totalValueInr?.toLocaleString('en-IN')}
                 </span>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="block text-xs font-bold uppercase text-mute">{t('payment.selectMethod', 'Select Payment Method')}</label>
+            <div className="space-y-3 text-xs">
+              <label className="block font-bold text-mute">{t('payment.selectMethod', 'Select Payment Method')}</label>
               <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: 'upi', label: 'UPI', icon: QrCode },
-                  { id: 'card', label: 'Card (Demo)', icon: CreditCard },
-                  { id: 'netBanking', label: 'Net Banking', icon: Building2 },
-                ].map((m) => (
+                {['upi', 'card', 'netBanking'].map((m) => (
                   <button
-                    key={m.id}
+                    key={m}
                     type="button"
-                    onClick={() => setMethod(m.id)}
-                    className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-bold transition-all ${
-                      method === m.id
+                    onClick={() => setMethod(m)}
+                    className={`rounded-lg border p-2.5 text-center font-bold capitalize transition-all ${
+                      method === m
                         ? 'border-forest bg-forest/10 text-forest dark:border-harvest dark:bg-harvest/15 dark:text-harvest'
-                        : 'border-line bg-earth/20 hover:border-forest/40 dark:border-night-mute/20'
+                        : 'border-line text-mute hover:bg-earth dark:border-night-mute/20'
                     }`}
                   >
-                    <m.icon size={18} />
-                    {m.label}
+                    {m === 'upi' ? 'UPI' : m === 'card' ? 'Card' : 'Net Banking'}
                   </button>
                 ))}
               </div>
-            </div>
-
-            {method === 'upi' && (
-              <div>
-                <label className="block text-xs font-bold uppercase text-mute mb-1">{t('payment.upiIdLabel', 'UPI ID / VPA')}</label>
-                <input
-                  type="text"
-                  value={upiId}
-                  onChange={(e) => setUpiId(e.target.value)}
-                  placeholder="buyer@upi"
-                  className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20 font-medium"
-                />
-              </div>
-            )}
-            {method === 'card' && (
-              <div className="space-y-2">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-mute mb-1">{t('payment.cardDemoLabel', 'Card Number (Simulated / Masked)')}</label>
-                  <input
-                    disabled
-                    value="•••• •••• •••• 4242"
-                    className="w-full rounded-lg border border-line bg-earth/40 px-3 py-2 text-sm font-mono dark:bg-night-lift/50 dark:border-night-mute/20"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <input disabled value="12/28" className="rounded-lg border border-line bg-earth/40 px-3 py-2 text-sm font-mono dark:bg-night-lift/50" />
-                  <input disabled value="•••" className="rounded-lg border border-line bg-earth/40 px-3 py-2 text-sm font-mono dark:bg-night-lift/50" />
-                </div>
-              </div>
-            )}
-            {method === 'netBanking' && (
-              <div>
-                <label className="block text-xs font-bold uppercase text-mute mb-1">{t('payment.bankLabel', 'Select Bank')}</label>
-                <select className="w-full rounded-lg border border-line px-3 py-2 text-sm dark:bg-night-lift dark:border-night-mute/20 font-medium">
-                  <option>State Bank of India (Demo)</option>
-                  <option>HDFC Bank (Demo)</option>
-                  <option>ICICI Bank (Demo)</option>
-                  <option>Axis Bank (Demo)</option>
-                </select>
-              </div>
-            )}
-
-            <div className="flex items-center gap-2 pt-1">
-              <input
-                type="checkbox"
-                id="simFail"
-                checked={simulateFail}
-                onChange={(e) => setSimulateFail(e.target.checked)}
-                className="rounded border-line text-forest focus:ring-forest"
-              />
-              <label htmlFor="simFail" className="text-xs text-mute cursor-pointer select-none">
-                {t('payment.simulateFailToggle', 'Simulate Failure (Demo error testing)')}
-              </label>
             </div>
 
             {err && (
@@ -298,6 +243,7 @@ function PaymentModal({ tx, onClose, onSuccess }) {
 
 function ReceiptModal({ tx, onClose }) {
   const { t } = useTranslation();
+  const isPool = tx.tradeType === 'POOL_AGGREGATION' || tx.isPoolOrder;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
@@ -308,7 +254,9 @@ function ReceiptModal({ tx, onClose }) {
               <Receipt size={18} className="text-forest dark:text-harvest" />
               <h3 className="font-bold text-ink dark:text-night-text">{t('payment.receiptTitle', 'Official Payment Receipt')}</h3>
             </div>
-            <p className="text-xs text-mute">{t('payment.receiptSubtitle', 'Agricultural Electronic Settlement Voucher')}</p>
+            <p className="text-xs text-mute">
+              {isPool ? 'Multi-Farmer Combined Order Electronic Settlement Voucher' : 'Direct Agricultural Electronic Settlement Voucher'}
+            </p>
           </div>
           <button onClick={onClose} className="rounded-lg p-1.5 text-mute hover:bg-earth dark:hover:bg-night-lift print:hidden">
             <X size={18} />
@@ -319,63 +267,65 @@ function ReceiptModal({ tx, onClose }) {
           <div>
             <div className="text-[10px] uppercase font-bold text-mute">Settlement Status</div>
             <div className="font-extrabold text-sm text-forest dark:text-harvest">
-              {t('payment.receiptStatus', 'PAID — SIMULATED DEMO')}
+              PAID & SETTLED — SIMULATED DEMO
             </div>
           </div>
-          <span className="rounded-full bg-forest px-3 py-1 text-xs font-bold text-white">✓ Verified</span>
+          <span className="rounded-full bg-forest px-3 py-1 text-xs font-bold text-white">✓ Verified Delivery</span>
         </div>
 
         <div className="space-y-2.5 text-xs">
           <div className="flex justify-between border-b border-line/40 py-1.5 dark:border-night-mute/20">
-            <span className="text-mute">Transaction ID:</span>
-            <span className="font-mono font-medium">{tx._id}</span>
+            <span className="text-mute">Order Number:</span>
+            <span className="font-mono font-bold">{tx.orderNumber || tx._id}</span>
           </div>
           <div className="flex justify-between border-b border-line/40 py-1.5 dark:border-night-mute/20">
             <span className="text-mute">Payment ID:</span>
-            <span className="font-mono font-bold text-forest dark:text-harvest">{tx.paymentId || 'SIM-PAY-DEMO'}</span>
-          </div>
-          <div className="flex justify-between border-b border-line/40 py-1.5 dark:border-night-mute/20">
-            <span className="text-mute">Settlement Date:</span>
-            <span>{tx.paidAt ? new Date(tx.paidAt).toLocaleString() : new Date().toLocaleString()}</span>
-          </div>
-          <div className="flex justify-between border-b border-line/40 py-1.5 dark:border-night-mute/20">
-            <span className="text-mute">Payment Method:</span>
-            <span className="font-bold">{tx.paymentMethod || 'UPI Transfer'}</span>
+            <span className="font-mono font-bold text-forest dark:text-harvest">{tx.paymentId || 'SIM-POOL-PAY'}</span>
           </div>
           <div className="flex justify-between border-b border-line/40 py-1.5 dark:border-night-mute/20">
             <span className="text-mute">Buyer (Payer):</span>
-            <span className="font-bold">{tx.buyer?.name || 'Buyer'}</span>
-          </div>
-          <div className="flex justify-between border-b border-line/40 py-1.5 dark:border-night-mute/20">
-            <span className="text-mute">Supplier (Beneficiary):</span>
-            <span className="font-bold">{tx.farmer?.name || 'Farmer'}</span>
+            <span className="font-bold">{tx.buyer?.name || 'Hyderabad Fresh Foods'}</span>
           </div>
           <div className="flex justify-between border-b border-line/40 py-1.5 dark:border-night-mute/20">
             <span className="text-mute">Commodity & Quantity:</span>
             <span className="font-bold">{tx.commodityName} — {tx.quantityKg} kg</span>
           </div>
-          <div className="flex justify-between border-b border-line/40 py-1.5 dark:border-night-mute/20">
-            <span className="text-mute">Agreed Price:</span>
-            <span>₹{tx.agreedPriceInr}/kg</span>
-          </div>
+
+          {/* If pool transaction, show farmer contributors breakdown */}
+          {isPool && tx.poolContributors && tx.poolContributors.length > 0 && (
+            <div className="rounded-lg bg-earth/40 p-2.5 dark:bg-night-lift/30 space-y-1.5 my-2">
+              <div className="font-bold text-[10px] uppercase text-mute">Farmer-Wise Payout Breakdown:</div>
+              {tx.poolContributors.map((c, idx) => (
+                <div key={idx} className="flex justify-between text-[11px]">
+                  <span>{c.farmerName || c.farmer?.name || `Farmer ${idx + 1}`} ({c.quantityKg} kg @ ₹{c.agreedPriceInr}/kg):</span>
+                  <span className="font-bold tabular text-forest dark:text-harvest">₹{c.grossAmountInr?.toLocaleString('en-IN')}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex justify-between py-2 text-sm font-bold bg-earth/30 p-2 rounded-lg dark:bg-night-lift/40">
-            <span>Total Settlement Amount:</span>
+            <span>Total Settlement Value:</span>
             <span className="text-forest dark:text-harvest font-extrabold">₹{tx.totalValueInr?.toLocaleString('en-IN')}</span>
           </div>
         </div>
+
+        <p className="text-[10px] text-mute italic">
+          Payment based on verified delivered contribution and agreed price. MandiMind coordinates zero-resale direct agriculture.
+        </p>
 
         <div className="flex justify-end gap-2 pt-2 print:hidden">
           <button
             onClick={() => window.print()}
             className="flex items-center gap-1.5 rounded-lg border border-line px-4 py-2 text-xs font-bold text-ink hover:bg-earth dark:border-night-mute/20 dark:text-night-text"
           >
-            <Printer size={14} /> {t('payment.printReceipt', 'Print Receipt')}
+            <Printer size={14} /> Print Receipt
           </button>
           <button
             onClick={onClose}
             className="rounded-lg bg-forest px-4 py-2 text-xs font-bold text-white hover:bg-forest-deep transition-colors"
           >
-            {t('payment.close', 'Close')}
+            Close
           </button>
         </div>
       </div>
@@ -383,93 +333,60 @@ function ReceiptModal({ tx, onClose }) {
   );
 }
 
-function TransactionCard({ tx, currentUser, onStatusUpdate, onOfferAccept, onOfferReject, onPayClick, onReceiptClick }) {
+function TransactionCard({ tx, currentUser, onStatusUpdate, onOfferAccept, onOfferReject, onPayClick, onReceiptClick, onOpenPoolModal }) {
   const { t } = useTranslation();
-  const [showLogistics, setShowLogistics] = useState(false);
+  const isPool = tx.tradeType === 'POOL_AGGREGATION' || tx.isPoolOrder;
   const statusConfig = STATUS_CONFIG[tx.status] || STATUS_CONFIG.listed;
   const StatusIcon = statusConfig.icon;
 
-  const nextStatus = (() => {
-    const idx = STATUS_STEPS.indexOf(tx.status);
-    if (idx >= 0 && idx < STATUS_STEPS.length - 1) return STATUS_STEPS[idx + 1];
-    return null;
-  })();
-  const offerId = tx.offer?._id || tx.offer;
-  const offerDoc = typeof tx.offer === 'object' ? tx.offer : null;
+  const isPaid = tx.paymentStatus === 'paid' || tx.paymentStatus === 'settled' || tx.status === 'completed';
+  const isBuyer = (tx.buyer?._id || tx.buyer)?.toString() === currentUser?._id?.toString() || currentUser?.role === 'buyer' || currentUser?.role === 'admin';
 
-  const userIdStr = (currentUser?._id || currentUser?.id)?.toString();
-  const farmerIdStr = (tx.farmer?._id || tx.farmer?.id || tx.farmer)?.toString();
-  const buyerIdStr = (tx.buyer?._id || tx.buyer?.id || tx.buyer)?.toString();
-  const createdByIdStr = (offerDoc?.createdBy?._id || offerDoc?.createdBy?.id || offerDoc?.createdBy)?.toString();
-  const isAdmin = currentUser?.role === 'admin';
-  const isBuyer = userIdStr === buyerIdStr || currentUser?.role === 'buyer' || isAdmin;
-
-  let isRecipient = false;
-  let isSender = false;
-
-  if (isAdmin) {
-    isRecipient = true;
-    isSender = false;
-  } else if (createdByIdStr && userIdStr) {
-    if (userIdStr === createdByIdStr) {
-      isSender = true;
-      isRecipient = false;
-    } else if (userIdStr === farmerIdStr || userIdStr === buyerIdStr) {
-      isRecipient = true;
-      isSender = false;
-    }
-  } else {
-    if (userIdStr && farmerIdStr && userIdStr === farmerIdStr) {
-      isRecipient = true;
-      isSender = false;
-    } else if (userIdStr && buyerIdStr && userIdStr === buyerIdStr) {
-      isSender = true;
-      isRecipient = false;
-    } else if (currentUser?.role === 'farmer' || currentUser?.role === 'seller') {
-      isRecipient = true;
-      isSender = false;
-    } else if (currentUser?.role === 'buyer') {
-      isSender = true;
-      isRecipient = false;
-    }
-  }
-
-  const isPaid = tx.paymentStatus === 'paid' || tx.status === 'completed';
+  // Check if current user is a participating farmer in this pool order
+  const myContrib = isPool && tx.poolContributors?.find(
+    (c) => (c.farmer?._id || c.farmer)?.toString() === currentUser?._id?.toString()
+  );
 
   return (
-    <div className="rounded-mm border border-line bg-white p-5 shadow-card dark:border-night-mute/20 dark:bg-night-card">
+    <div className={`rounded-mm border bg-white p-5 shadow-card dark:border-night-mute/20 dark:bg-night-card ${
+      isPool ? 'border-l-4 border-l-harvest' : 'border-line'
+    }`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <div className={`grid h-10 w-10 place-items-center rounded-xl ${statusConfig.color}`}>
             <StatusIcon size={18} />
           </div>
           <div>
-            <div className="font-bold text-ink dark:text-night-text">
-              {tx.commodityName} — {tx.quantityKg} kg
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-ink dark:text-night-text text-base">
+                {tx.commodityName} — {tx.quantityKg} kg
+              </span>
+              <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${
+                isPool ? 'bg-harvest/15 text-harvest' : 'bg-forest/10 text-forest'
+              }`}>
+                {isPool ? 'SUPPLY POOL ORDER' : 'DIRECT TRADE'}
+              </span>
             </div>
-            <div className="text-xs text-mute">
-              {tx.farmer?.name || 'Supplier'} → {tx.buyer?.name || 'Buyer'}
+            <div className="text-xs text-mute mt-0.5 flex items-center gap-1.5">
+              <span>Buyer: <strong>{tx.buyer?.name || 'Hyderabad Fresh Foods'}</strong></span>
+              <span>•</span>
+              <span>{isPool ? `${tx.poolContributors?.length || 2} Farmers Combined` : `Producer: ${tx.farmer?.name || 'Farmer'}`}</span>
             </div>
           </div>
         </div>
+
         <div className="flex items-center gap-2">
           {isPaid ? (
             <span className="flex items-center gap-1 rounded-full bg-forest/10 px-2.5 py-0.5 text-[10px] font-bold text-forest dark:bg-harvest/15 dark:text-harvest">
-              <Check size={10} /> {t('transactions.paid', 'Paid')}
-            </span>
-          ) : tx.paymentStatus === 'failed' ? (
-            <span className="flex items-center gap-1 rounded-full bg-alert/10 px-2.5 py-0.5 text-[10px] font-bold text-alert">
-              <AlertTriangle size={10} /> {t('transactions.failed', 'Payment Failed')}
+              <Check size={10} /> {tx.paymentStatus === 'settled' ? 'Settled' : 'Paid'}
             </span>
           ) : (
-            ['accepted', 'logistics_planned', 'in_transit', 'delivered'].includes(tx.status) && (
-              <span className="flex items-center gap-1 rounded-full bg-harvest/15 px-2.5 py-0.5 text-[10px] font-bold text-harvest">
-                <Clock size={10} /> {t('transactions.pending', 'Payment Pending')}
-              </span>
-            )
+            <span className="flex items-center gap-1 rounded-full bg-harvest/15 px-2.5 py-0.5 text-[10px] font-bold text-harvest">
+              <Clock size={10} /> Payment Pending
+            </span>
           )}
           <span className={`rounded-full px-3 py-1 text-[10px] font-extrabold uppercase ${statusConfig.color}`}>
-            {t(`transactions.${tx.status}`, statusConfig.label)}
+            {statusConfig.label}
           </span>
         </div>
       </div>
@@ -478,124 +395,116 @@ function TransactionCard({ tx, currentUser, onStatusUpdate, onOfferAccept, onOff
         <StatusTimeline currentStatus={tx.status} />
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* If current farmer contributed to pool */}
+      {myContrib && (
+        <div className="mt-3 rounded-lg border border-forest/30 bg-forest/5 p-3 dark:border-harvest/30 dark:bg-harvest/5 flex items-center justify-between text-xs">
+          <div>
+            <div className="text-[10px] font-extrabold uppercase text-forest dark:text-harvest">
+              🌾 Your Contribution
+            </div>
+            <div className="font-bold text-ink dark:text-night-text">
+              {myContrib.quantityKg} kg @ ₹{myContrib.agreedPriceInr || tx.agreedPriceInr}/kg
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-[10px] text-mute uppercase">Your Gross Payout</div>
+            <div className="font-extrabold text-sm text-forest dark:text-harvest tabular">
+              ₹{myContrib.grossAmountInr?.toLocaleString('en-IN')}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Metrics */}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
         <div className="rounded-lg bg-earth/50 p-3 dark:bg-night-lift/40">
-          <div className="text-[10px] uppercase text-mute">{t('transactions.agreedPrice', 'Agreed Price')}</div>
-          <div className="mt-0.5 font-bold tabular">₹{tx.agreedPriceInr}/kg</div>
+          <div className="text-[10px] uppercase text-mute">Agreed Unit Price</div>
+          <div className="mt-0.5 font-bold tabular text-ink dark:text-night-text">₹{tx.agreedPriceInr}/kg</div>
         </div>
         <div className="rounded-lg bg-earth/50 p-3 dark:bg-night-lift/40">
-          <div className="text-[10px] uppercase text-mute">{t('transactions.totalValue', 'Total Value')}</div>
+          <div className="text-[10px] uppercase text-mute">Total Order Value</div>
           <div className="mt-0.5 font-bold tabular text-forest dark:text-harvest">
             ₹{tx.totalValueInr?.toLocaleString('en-IN')}
           </div>
         </div>
         <div className="rounded-lg bg-earth/50 p-3 dark:bg-night-lift/40">
-          <div className="text-[10px] uppercase text-mute">{t('transactions.transportCost', 'Transport Cost')}</div>
-          <div className="mt-0.5 font-bold tabular">₹{tx.transportCostInr?.toLocaleString('en-IN')}</div>
+          <div className="text-[10px] uppercase text-mute">Transport Logistics</div>
+          <div className="mt-0.5 font-bold tabular text-ink dark:text-night-text">
+            {isPool ? 'Consolidated Route' : `₹${tx.transportCostInr || 0}`}
+          </div>
         </div>
         <div className="rounded-lg bg-earth/50 p-3 dark:bg-night-lift/40">
-          <div className="text-[10px] uppercase text-mute">
-            {tx.farmer?.role === 'seller' ? t('transactions.sellerNet', 'Seller Net') : t('transactions.farmerNet', 'Farmer Net')}
+          <div className="text-[10px] uppercase text-mute">Fulfillment Type</div>
+          <div className="mt-0.5 font-bold capitalize text-ink dark:text-night-text">
+            {isPool ? 'Multi-Farmer Pool' : 'Direct Trade'}
           </div>
-          <div className="mt-0.5 font-bold tabular">₹{tx.farmerNetValueInr?.toLocaleString('en-IN')}</div>
         </div>
       </div>
 
-      {tx.logistics?.distanceKm > 0 && (
-        <div className="mt-3">
-          <button
-            onClick={() => setShowLogistics(!showLogistics)}
-            className="text-xs font-bold text-forest hover:text-forest-deep dark:text-harvest"
-          >
-            {showLogistics ? 'Hide logistics' : 'Show logistics details'}
-          </button>
-          {showLogistics && (
-            <div className="mt-2 grid gap-2 rounded-lg bg-earth/40 p-3 dark:bg-night-lift/30 sm:grid-cols-4">
-              <div>
-                <div className="text-[10px] uppercase text-mute">{t('logistics.distance', 'Distance')}</div>
-                <div className="font-bold tabular">{tx.logistics.distanceKm} km</div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase text-mute">{t('logistics.eta', 'ETA')}</div>
-                <div className="font-bold tabular">{tx.logistics.estimatedTimeMin} min</div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase text-mute">{t('logistics.costPerKg', 'Cost/kg')}</div>
-                <div className="font-bold tabular">₹{tx.logistics.transportCostPerKg}</div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase text-mute">Route</div>
-                <div className="font-bold tabular">{tx.logistics.pickupLocation} → {tx.logistics.deliveryLocation}</div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
+      {/* Actions footer */}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-line/60 pt-4 dark:border-night-mute/30">
-        <div className="text-xs text-mute">
-          Created: {new Date(tx.createdAt).toLocaleDateString()}
-          {tx.completedAt && ` • Completed: ${new Date(tx.completedAt).toLocaleDateString()}`}
+        <div className="text-xs text-mute font-mono">
+          Order #{tx.orderNumber || tx._id.slice(-6)} • {new Date(tx.createdAt).toLocaleDateString()}
         </div>
+
         <div className="flex flex-wrap items-center gap-2">
-          {tx.status === 'offer_pending' && (
+          {/* If pool order, button to open pool tracking modal */}
+          {isPool && (
+            <button
+              type="button"
+              onClick={() => onOpenPoolModal(tx.supplyPool?._id || tx.supplyPool)}
+              className="flex items-center gap-1.5 rounded-lg bg-harvest/15 hover:bg-harvest hover:text-ink px-3.5 py-1.5 text-xs font-bold text-harvest transition-colors"
+            >
+              <Users size={13} />
+              <span>Track Supply Pool</span>
+            </button>
+          )}
+
+          {/* Direct trade offer accept/reject */}
+          {!isPool && tx.status === 'offer_pending' && (
             <>
-              {isRecipient ? (
-                <>
-                  <button
-                    onClick={() => onOfferReject(offerId, tx._id)}
-                    className="rounded-lg border border-alert/30 px-3 py-1.5 text-xs font-bold text-alert hover:bg-alert/10 transition-colors"
-                  >
-                    {t('transactions.rejectOffer', 'Reject')}
-                  </button>
-                  <button
-                    onClick={() => onOfferAccept(offerId, tx._id)}
-                    className="rounded-lg bg-forest px-3 py-1.5 text-xs font-bold text-white hover:bg-forest-deep transition-colors"
-                  >
-                    {t('transactions.acceptOffer', 'Accept Offer')}
-                  </button>
-                </>
-              ) : isSender ? (
-                <span className="flex items-center gap-1.5 rounded-lg bg-harvest/15 px-3 py-1.5 text-xs font-bold text-harvest">
-                  <Clock size={12} /> {t('transactions.offerSentBadge', 'Offer Sent — Awaiting Review')}
-                </span>
-              ) : null}
+              <button
+                onClick={() => onOfferReject(tx.offer?._id || tx.offer, tx._id)}
+                className="rounded-lg border border-alert/30 px-3 py-1.5 text-xs font-bold text-alert hover:bg-alert/10 transition-colors"
+              >
+                Reject
+              </button>
+              <button
+                onClick={() => onOfferAccept(tx.offer?._id || tx.offer, tx._id)}
+                className="rounded-lg bg-forest px-3 py-1.5 text-xs font-bold text-white hover:bg-forest-deep transition-colors"
+              >
+                Accept Offer
+              </button>
             </>
           )}
 
+          {/* Link to logistics */}
           {['accepted', 'logistics_planned', 'in_transit', 'delivered'].includes(tx.status) && (
             <Link
               to={`/logistics?transactionId=${tx._id}`}
               className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-ink hover:bg-earth dark:border-night-mute/20 dark:text-night-text dark:hover:bg-night-lift transition-colors"
             >
-              <Truck size={13} className="text-forest dark:text-harvest" /> {t('transactions.routeBtn', 'Route')}
+              <Truck size={13} className="text-forest dark:text-harvest" /> Route
             </Link>
           )}
 
+          {/* Pay now */}
           {!isPaid && isBuyer && ['accepted', 'logistics_planned', 'in_transit', 'delivered'].includes(tx.status) && (
             <button
               onClick={() => onPayClick(tx)}
-              className="flex items-center gap-1.5 rounded-lg bg-harvest px-3.5 py-1.5 text-xs font-extrabold text-white hover:bg-harvest-deep shadow-sm transition-colors"
+              className="flex items-center gap-1.5 rounded-lg bg-forest px-3.5 py-1.5 text-xs font-extrabold text-white hover:bg-forest-deep shadow-sm transition-colors"
             >
-              <IndianRupee size={13} /> {t('transactions.payNow', 'Pay Now')}
+              <IndianRupee size={13} /> Pay Now
             </button>
           )}
 
+          {/* View receipt */}
           {isPaid && (
             <button
               onClick={() => onReceiptClick(tx)}
               className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-ink hover:bg-earth dark:border-night-mute/20 dark:text-night-text transition-colors"
             >
-              <Receipt size={13} className="text-forest dark:text-harvest" /> {t('transactions.viewReceipt', 'View Receipt')}
-            </button>
-          )}
-
-          {nextStatus && nextStatus !== 'offer_pending' && nextStatus !== 'rejected' && tx.status !== 'completed' && tx.status !== 'offer_pending' && (
-            <button
-              onClick={() => onStatusUpdate(tx._id, nextStatus)}
-              className="flex items-center gap-1 rounded-lg bg-forest/10 px-3 py-1.5 text-xs font-bold text-forest hover:bg-forest hover:text-white transition-colors dark:bg-harvest/10 dark:text-harvest"
-            >
-              {t('transactions.advanceTo', 'Advance to')} {t(`transactions.${nextStatus}`, STATUS_CONFIG[nextStatus]?.label)} <ArrowRight size={12} />
+              <Receipt size={13} className="text-forest dark:text-harvest" /> View Receipt
             </button>
           )}
         </div>
@@ -610,10 +519,12 @@ export default function TransactionsPage() {
   const [transactions, setTransactions] = useState([]);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [tradeTypeFilter, setTradeTypeFilter] = useState('all'); // 'all' | 'direct' | 'pools'
 
   const [paymentTx, setPaymentTx] = useState(null);
   const [receiptTx, setReceiptTx] = useState(null);
+  const [activePoolModalId, setActivePoolModalId] = useState(null);
 
   async function loadTransactions() {
     setLoading(true);
@@ -669,56 +580,66 @@ export default function TransactionsPage() {
   if (err) return <ErrorState message={err} onRetry={loadTransactions} />;
   if (loading) return <LoadingSkeleton />;
 
-  const filtered = filter === 'all' ? transactions : transactions.filter((t) => t.status === filter);
+  const filtered = transactions
+    .filter((t) => (statusFilter === 'all' ? true : t.status === statusFilter))
+    .filter((t) => {
+      if (tradeTypeFilter === 'direct') return t.tradeType !== 'POOL_AGGREGATION';
+      if (tradeTypeFilter === 'pools') return t.tradeType === 'POOL_AGGREGATION' || t.isPoolOrder;
+      return true;
+    });
 
-  const statusCounts = transactions.reduce((acc, t) => {
-    acc[t.status] = (acc[t.status] || 0) + 1;
-    return acc;
-  }, {});
+  const poolCount = transactions.filter((t) => t.tradeType === 'POOL_AGGREGATION' || t.isPoolOrder).length;
+  const directCount = transactions.filter((t) => t.tradeType !== 'POOL_AGGREGATION').length;
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow={t('transactions.eyebrow', 'Order & Settlement Pipeline')}
         title={t('transactions.title', 'My Transactions')}
-        subtitle={t('transactions.subtitle', 'Track your marketplace transactions from offer to verified settlement.')}
+        subtitle="Track direct trade agreements and multi-farmer combined orders with verified transparent settlement."
         actions={<DataStatusBadge status="SIMULATED" />}
       />
 
-      <div className="grid gap-3 sm:grid-cols-4">
-        <div className="rounded-mm border border-line bg-white px-4 py-3 dark:border-night-mute/20 dark:bg-night-card">
-          <div className="text-[11px] uppercase text-mute">{t('common.all', 'Total Transactions')}</div>
-          <div className="mt-0.5 text-2xl font-bold tabular">{transactions.length}</div>
-        </div>
-        <div className="rounded-mm border border-line bg-white px-4 py-3 dark:border-night-mute/20 dark:bg-night-card">
-          <div className="text-[11px] uppercase text-mute">{t('transactions.offer_pending', 'Pending Offers')}</div>
-          <div className="mt-0.5 text-2xl font-bold tabular text-harvest">{statusCounts.offer_pending || 0}</div>
-        </div>
-        <div className="rounded-mm border border-line bg-white px-4 py-3 dark:border-night-mute/20 dark:bg-night-card">
-          <div className="text-[11px] uppercase text-mute">Active Orders</div>
-          <div className="mt-0.5 text-2xl font-bold tabular text-forest dark:text-harvest">
-            {(statusCounts.accepted || 0) + (statusCounts.logistics_planned || 0) + (statusCounts.in_transit || 0) + (statusCounts.delivered || 0)}
-          </div>
-        </div>
-        <div className="rounded-mm border border-line bg-white px-4 py-3 dark:border-night-mute/20 dark:bg-night-card">
-          <div className="text-[11px] uppercase text-mute">{t('transactions.completed', 'Completed')}</div>
-          <div className="mt-0.5 text-2xl font-bold tabular text-forest">{statusCounts.completed || 0}</div>
-        </div>
-      </div>
+      {/* Type Tabs */}
+      <div className="flex items-center gap-3 border-b border-line dark:border-night-mute/30 pb-2">
+        <button
+          type="button"
+          onClick={() => setTradeTypeFilter('all')}
+          className={`flex items-center gap-2 pb-2 text-sm font-bold border-b-2 transition-all ${
+            tradeTypeFilter === 'all'
+              ? 'border-forest text-forest dark:border-harvest dark:text-harvest'
+              : 'border-transparent text-mute hover:text-ink'
+          }`}
+        >
+          <Receipt size={16} />
+          <span>All Orders ({transactions.length})</span>
+        </button>
 
-      <div className="flex flex-wrap gap-1 rounded-xl bg-earth/60 p-1 dark:bg-night-lift">
-        {['all', 'offer_pending', 'accepted', 'in_transit', 'delivered', 'completed'].map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
-              filter === f ? 'bg-white text-forest shadow-sm dark:bg-night-card dark:text-harvest' : 'text-mute hover:text-ink'
-            }`}
-          >
-            {f === 'all' ? t('common.all', 'All') : t(`transactions.${f}`, STATUS_CONFIG[f]?.label || f)}
-            {f !== 'all' && statusCounts[f] ? ` (${statusCounts[f]})` : ''}
-          </button>
-        ))}
+        <button
+          type="button"
+          onClick={() => setTradeTypeFilter('pools')}
+          className={`flex items-center gap-2 pb-2 text-sm font-bold border-b-2 transition-all ${
+            tradeTypeFilter === 'pools'
+              ? 'border-harvest text-harvest'
+              : 'border-transparent text-mute hover:text-ink'
+          }`}
+        >
+          <Users size={16} />
+          <span>Supply Pool Orders ({poolCount})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTradeTypeFilter('direct')}
+          className={`flex items-center gap-2 pb-2 text-sm font-bold border-b-2 transition-all ${
+            tradeTypeFilter === 'direct'
+              ? 'border-forest text-forest dark:border-harvest dark:text-harvest'
+              : 'border-transparent text-mute hover:text-ink'
+          }`}
+        >
+          <Package size={16} />
+          <span>Direct Trade ({directCount})</span>
+        </button>
       </div>
 
       {filtered.length === 0 ? (
@@ -726,7 +647,7 @@ export default function TransactionsPage() {
           <Receipt size={32} className="mx-auto text-mute" />
           <div className="mt-3 text-sm font-medium text-mute">{t('transactions.noTransactions', 'No transactions found')}</div>
           <div className="mt-1 text-xs text-mute">
-            Create a listing and make an offer in Marketplace or AI Matches to start a transaction.
+            Orders are generated from accepted direct offers or confirmed multi-farmer supply pools.
           </div>
         </div>
       ) : (
@@ -741,6 +662,7 @@ export default function TransactionsPage() {
               onOfferReject={rejectOffer}
               onPayClick={(item) => setPaymentTx(item)}
               onReceiptClick={(item) => setReceiptTx(item)}
+              onOpenPoolModal={(id) => setActivePoolModalId(id)}
             />
           ))}
         </div>
@@ -750,9 +672,7 @@ export default function TransactionsPage() {
         <PaymentModal
           tx={paymentTx}
           onClose={() => setPaymentTx(null)}
-          onSuccess={() => {
-            loadTransactions();
-          }}
+          onSuccess={loadTransactions}
         />
       )}
 
@@ -760,6 +680,15 @@ export default function TransactionsPage() {
         <ReceiptModal
           tx={receiptTx}
           onClose={() => setReceiptTx(null)}
+        />
+      )}
+
+      {activePoolModalId && (
+        <SupplyPoolDetailModal
+          poolId={activePoolModalId}
+          currentUser={user}
+          onClose={() => setActivePoolModalId(null)}
+          onUpdated={loadTransactions}
         />
       )}
     </div>

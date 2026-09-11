@@ -23,6 +23,13 @@ import {
   getSupplyPools,
   getSupplyPoolById,
   contributeToSupplyPool,
+  confirmSupplyPool,
+  updatePickupStopStatus,
+  advancePoolShipmentStatus,
+  confirmPoolDelivery,
+  settlePoolPayment,
+  getShipments,
+  getShipmentById,
   getTradeAnalysis,
 } from '../controllers/marketplaceController.js';
 
@@ -44,19 +51,28 @@ marketplaceRouter.get('/matches', requireAuth, runMatching);
 marketplaceRouter.get('/matches/:id', requireAuth, getMatchById);
 marketplaceRouter.post('/trade-analysis', requireAuth, getTradeAnalysis);
 
-// Supply Pooling (Multi-farmer Aggregation)
+// Supply Pooling (Multi-farmer Aggregation & Fulfillment Lifecycle)
 marketplaceRouter.post('/pools', requireAuth, requireRole('farmer', 'seller', 'buyer', 'admin'), createSupplyPool);
 marketplaceRouter.get('/pools', requireAuth, getSupplyPools);
 marketplaceRouter.get('/pools/:id', requireAuth, getSupplyPoolById);
 marketplaceRouter.post('/pools/:id/contribute', requireAuth, requireRole('farmer', 'seller', 'admin'), contributeToSupplyPool);
+marketplaceRouter.post('/pools/:id/confirm', requireAuth, requireRole('buyer', 'admin'), confirmSupplyPool);
+marketplaceRouter.patch('/pools/:id/pickup-stop', requireAuth, updatePickupStopStatus);
+marketplaceRouter.patch('/pools/:id/advance-shipment', requireAuth, advancePoolShipmentStatus);
+marketplaceRouter.post('/pools/:id/confirm-delivery', requireAuth, requireRole('buyer', 'admin'), confirmPoolDelivery);
+marketplaceRouter.post('/pools/:id/settle', requireAuth, requireRole('buyer', 'admin', 'farmer', 'seller'), settlePoolPayment);
+
+// Shipments (Consolidated Logistics & Direct Trade Shipments)
+marketplaceRouter.get('/shipments', requireAuth, getShipments);
+marketplaceRouter.get('/shipments/:id', requireAuth, getShipmentById);
 
 // Fair price
 marketplaceRouter.get('/fair-price', requireAuth, getFairPrice);
 
-// Logistics
+// Logistics calculation
 marketplaceRouter.get('/logistics', requireAuth, calculateLogistics);
 
-// Offers
+// Offers (Direct Trade)
 marketplaceRouter.post('/offers', requireAuth, requireRole('buyer', 'farmer', 'seller', 'admin'), createOffer);
 marketplaceRouter.patch('/offers/:id/accept', requireAuth, requireRole('farmer', 'seller', 'buyer', 'admin'), acceptOffer);
 marketplaceRouter.patch('/offers/:id/reject', requireAuth, requireRole('farmer', 'seller', 'buyer', 'admin'), rejectOffer);

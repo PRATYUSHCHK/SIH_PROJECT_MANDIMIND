@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from '../i18n/index.jsx';
 import { api } from '../services/api.js';
 import { DataStatusBadge } from './DataStatusBadge.jsx';
+import { SupplyPoolDetailModal } from './SupplyPoolDetailModal.jsx';
 import {
   Users,
   Package,
@@ -13,12 +14,18 @@ import {
   ArrowRight,
   Sparkles,
   Layers,
+  Building2,
+  Clock,
+  ShieldCheck,
+  Navigation,
+  CheckCircle2,
   X,
 } from 'lucide-react';
 
 export function SupplyPoolCard({ pool, currentUser, onContributed }) {
   const { t } = useTranslation();
   const [showContributeModal, setShowContributeModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [qty, setQty] = useState('');
   const [price, setPrice] = useState(pool.targetPriceInr || '');
   const [loading, setLoading] = useState(false);
@@ -29,7 +36,22 @@ export function SupplyPoolCard({ pool, currentUser, onContributed }) {
   const progressPct = Math.min(100, Math.round((collected / target) * 100));
   const remaining = Math.max(0, target - collected);
   const contributors = pool.contributors || [];
-  const isFarmer = currentUser?.role === 'farmer' || currentUser?.role === 'seller' || currentUser?.role === 'admin';
+  const status = pool.status || 'open';
+
+  const isFarmer = currentUser?.role === 'farmer' || currentUser?.role === 'seller';
+  const isBuyer =
+    currentUser?.role === 'buyer' ||
+    (pool.buyer?._id && pool.buyer._id.toString() === currentUser?._id?.toString()) ||
+    pool.buyer?.toString() === currentUser?._id?.toString();
+
+  // Find my contribution if logged in as farmer
+  const myContrib = contributors.find(
+    (c) =>
+      (c.farmer?._id && c.farmer._id.toString() === currentUser?._id?.toString()) ||
+      c.farmer?.toString() === currentUser?._id?.toString()
+  );
+
+  const buyerName = pool.buyerName || pool.buyer?.name || 'Hyderabad Fresh Foods';
 
   async function handleContribute(e) {
     e.preventDefault();
@@ -48,26 +70,131 @@ export function SupplyPoolCard({ pool, currentUser, onContributed }) {
     setLoading(false);
   }
 
+  // Action button text and color based on state
+  function getActionButton() {
+    if (status === 'open' && remaining > 0 && isFarmer && !myContrib) {
+      return {
+        label: t('pool.contribute', 'Contribute Produce'),
+        icon: Plus,
+        className: 'bg-forest hover:bg-forest-deep text-white dark:bg-harvest dark:text-ink',
+        onClick: () => setShowContributeModal(true),
+      };
+    }
+
+    if (status === 'target_reached' || status === 'buyer_confirmation_pending') {
+      if (isBuyer) {
+        return {
+          label: 'Review & Confirm Pooled Order',
+          icon: CheckCircle2,
+          className: 'bg-forest hover:bg-forest-deep text-white dark:bg-harvest dark:text-ink',
+          onClick: () => setShowDetailModal(true),
+        };
+      }
+      return {
+        label: 'Ready for Buyer Confirmation',
+        icon: ArrowRight,
+        className: 'bg-harvest hover:opacity-90 text-ink',
+        onClick: () => setShowDetailModal(true),
+      };
+    }
+
+    if (status === 'buyer_confirmed') {
+      return {
+        label: 'Order Confirmed • Plan Delivery',
+        icon: Truck,
+        className: 'bg-forest hover:bg-forest-deep text-white dark:bg-harvest dark:text-ink',
+        onClick: () => setShowDetailModal(true),
+      };
+    }
+
+    if (status === 'pickup_scheduled' || status === 'pickup_in_progress') {
+      return {
+        label: 'Vehicle Assigned • View Pickups',
+        icon: Truck,
+        className: 'bg-forest hover:bg-forest-deep text-white dark:bg-harvest dark:text-ink',
+        onClick: () => setShowDetailModal(true),
+      };
+    }
+
+    if (status === 'consolidated') {
+      return {
+        label: 'Consolidated • Track Dispatch',
+        icon: Navigation,
+        className: 'bg-forest hover:bg-forest-deep text-white dark:bg-harvest dark:text-ink',
+        onClick: () => setShowDetailModal(true),
+      };
+    }
+
+    if (status === 'in_transit' || status === 'arriving') {
+      return {
+        label: 'In Transit • Track Shipment',
+        icon: Navigation,
+        className: 'bg-harvest hover:opacity-90 text-ink',
+        onClick: () => setShowDetailModal(true),
+      };
+    }
+
+    if (status === 'delivered') {
+      return {
+        label: isBuyer ? 'Delivered • View Settlement' : 'Delivered • View Settlement',
+        icon: IndianRupee,
+        className: 'bg-forest hover:bg-forest-deep text-white dark:bg-harvest dark:text-ink',
+        onClick: () => setShowDetailModal(true),
+      };
+    }
+
+    if (status === 'completed') {
+      return {
+        label: 'Completed • View Payment Receipt',
+        icon: ShieldCheck,
+        className: 'bg-forest text-white',
+        onClick: () => setShowDetailModal(true),
+      };
+    }
+
+    return {
+      label: 'View Order Details',
+      icon: ArrowRight,
+      className: 'bg-earth hover:bg-earth/80 text-ink dark:bg-night-lift dark:text-night-text',
+      onClick: () => setShowDetailModal(true),
+    };
+  }
+
+  const action = getActionButton();
+  const ActionIcon = action.icon;
+
   return (
     <div className="rounded-xl border border-line bg-white p-5 shadow-card dark:border-night-mute/20 dark:bg-night-card space-y-4">
-      {/* Header */}
+      {/* Header with Buyer Information */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line/60 pb-3 dark:border-night-mute/30">
-        <div className="flex items-center gap-2">
-          <div className="grid h-8 w-8 place-items-center rounded-lg bg-harvest/15 text-harvest">
-            <Users size={16} />
+        <div className="flex items-center gap-2.5">
+          <div className="grid h-9 w-9 place-items-center rounded-xl bg-forest/10 text-forest dark:bg-harvest/15 dark:text-harvest">
+            <Users size={18} />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h4 className="text-base font-bold text-ink dark:text-night-text">
                 {pool.commodityName} — Coordinated Supply Pool
               </h4>
-              <span className="rounded-full bg-forest/15 px-2.5 py-0.5 text-[10px] font-bold text-forest uppercase">
-                {pool.status?.replace('_', ' ')}
+              <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${
+                status === 'completed' || status === 'delivered' ? 'bg-forest/15 text-forest' :
+                status === 'target_reached' || status === 'buyer_confirmed' || status === 'in_transit' ? 'bg-harvest/20 text-harvest font-black' :
+                'bg-forest/15 text-forest'
+              }`}>
+                {status.replace(/_/g, ' ')}
               </span>
             </div>
-            <p className="text-[11px] text-mute">
-              Temporary multi-farmer order aggregation • {t('pool.destination', 'Destination')}: {pool.destinationLocation} • {pool.qualityGrade || 'Grade A'}
-            </p>
+            <div className="flex items-center gap-2 text-[11px] text-mute mt-0.5">
+              <span className="flex items-center gap-1 font-semibold text-ink dark:text-night-text">
+                <Building2 size={12} className="text-forest dark:text-harvest" />
+                Buyer: {buyerName}
+              </span>
+              <span>•</span>
+              <span className="flex items-center gap-1">
+                <MapPin size={12} />
+                {pool.destinationLocation || 'Hyderabad'}
+              </span>
+            </div>
           </div>
         </div>
         <DataStatusBadge status="SIMULATED" />
@@ -77,7 +204,7 @@ export function SupplyPoolCard({ pool, currentUser, onContributed }) {
       <div>
         <div className="flex items-center justify-between text-xs mb-1.5">
           <span className="font-bold text-ink dark:text-night-text">
-            {collected} kg / {target} kg {t('pool.collected', 'Collected')}
+            {collected.toLocaleString('en-IN')} kg / {target.toLocaleString('en-IN')} kg {t('pool.collected', 'Collected')}
           </span>
           <span className="font-extrabold text-forest dark:text-harvest tabular">{progressPct}%</span>
         </div>
@@ -96,53 +223,98 @@ export function SupplyPoolCard({ pool, currentUser, onContributed }) {
           <div className="mt-0.5 font-bold tabular text-ink dark:text-night-text">₹{pool.targetPriceInr}/kg</div>
         </div>
         <div className="rounded-lg bg-earth/40 p-2.5 dark:bg-night-lift/30">
-          <div className="text-[10px] uppercase text-mute">{t('pool.avgFarmerNet', 'Avg Farmer Net')}</div>
-          <div className="mt-0.5 font-bold tabular text-forest dark:text-harvest">₹{pool.averageFarmerPriceInr || pool.targetPriceInr}/kg</div>
+          <div className="text-[10px] uppercase text-mute">Total Value</div>
+          <div className="mt-0.5 font-bold tabular text-forest dark:text-harvest">
+            ₹{((pool.collectedQuantityKg || target) * pool.targetPriceInr).toLocaleString('en-IN')}
+          </div>
         </div>
         <div className="rounded-lg bg-earth/40 p-2.5 dark:bg-night-lift/30">
           <div className="text-[10px] uppercase text-mute">{t('pool.participatingFarmers', 'Farmers Joined')}</div>
           <div className="mt-0.5 font-bold text-ink dark:text-night-text">{contributors.length} Farmers</div>
         </div>
         <div className="rounded-lg bg-earth/40 p-2.5 dark:bg-night-lift/30">
-          <div className="text-[10px] uppercase text-mute">{t('pool.remainingNeeded', 'Remaining')}</div>
-          <div className="mt-0.5 font-bold tabular text-harvest">{remaining} kg</div>
+          <div className="text-[10px] uppercase text-mute">Fulfillment Status</div>
+          <div className="mt-0.5 font-bold tabular text-harvest capitalize">
+            {status.replace(/_/g, ' ')}
+          </div>
         </div>
       </div>
+
+      {/* Individual Contribution Highlight for Logged-In Farmer */}
+      {isFarmer && myContrib && (
+        <div className="rounded-lg border border-forest/30 bg-forest/5 p-3 dark:border-harvest/30 dark:bg-harvest/5 flex items-center justify-between text-xs">
+          <div>
+            <div className="text-[10px] font-extrabold uppercase text-forest dark:text-harvest">
+              🌾 Your Contribution
+            </div>
+            <div className="font-bold text-ink dark:text-night-text">
+              {myContrib.quantityKg} kg @ ₹{myContrib.offeredPriceInr || pool.targetPriceInr}/kg
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-[10px] text-mute uppercase">Your Expected Gross</div>
+            <div className="font-extrabold text-sm text-forest dark:text-harvest tabular">
+              ₹{(myContrib.quantityKg * (myContrib.offeredPriceInr || pool.targetPriceInr)).toLocaleString('en-IN')}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Contributors Summary */}
       {contributors.length > 0 && (
         <div className="space-y-1.5 text-xs">
-          <div className="font-bold uppercase tracking-wider text-mute">{t('pool.contributorsList', 'Participating Suppliers')}</div>
-          <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
+          <div className="font-bold uppercase tracking-wider text-mute flex items-center justify-between">
+            <span>{t('pool.contributorsList', 'Participating Suppliers')}</span>
+            <span className="text-[10px] text-mute">Consolidated pickup route</span>
+          </div>
+          <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
             {contributors.map((c, idx) => (
               <div key={idx} className="flex items-center justify-between rounded bg-earth/30 px-2.5 py-1 text-ink dark:bg-night-lift/30 dark:text-night-text">
-                <span className="font-medium">{c.farmer?.name || c.location || `Farmer ${idx + 1}`}</span>
+                <span className="font-medium">{c.farmerName || c.farmer?.name || c.location || `Farmer ${idx + 1}`}</span>
                 <span className="text-mute">{c.location}</span>
-                <span className="tabular font-bold text-forest dark:text-harvest">{c.quantityKg} kg @ ₹{c.offeredPriceInr}/kg</span>
+                <span className="tabular font-bold text-forest dark:text-harvest">{c.quantityKg} kg @ ₹{c.offeredPriceInr || pool.targetPriceInr}/kg</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Action Button */}
-      <div className="flex items-center justify-between pt-2 border-t border-line/60 dark:border-night-mute/30">
+      {/* Action Footer */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-line/60 dark:border-night-mute/30">
         <div className="text-[11px] text-mute flex items-center gap-1.5">
           <Truck size={13} />
-          <span>{t('pool.consolidatedPickup', 'Single consolidated pickup plan')}</span>
+          <span>
+            {status === 'open' && remaining > 0 ? `${remaining} kg remaining to reach target` :
+             status === 'target_reached' || status === 'buyer_confirmation_pending' ? 'Target reached — waiting for buyer confirmation' :
+             status === 'buyer_confirmed' ? 'Order confirmed by buyer' :
+             status === 'pickup_scheduled' || status === 'pickup_in_progress' ? 'Multi-stop pickup in progress' :
+             status === 'consolidated' ? 'Produce consolidated in cargo vehicle' :
+             status === 'in_transit' ? 'Shipment in transit to buyer' :
+             status === 'delivered' ? 'Shipment delivered to buyer' : 'Order & payment completed'}
+          </span>
         </div>
 
-        {isFarmer && remaining > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowContributeModal(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-forest px-4 py-1.5 text-xs font-bold text-white hover:bg-forest-deep transition-colors dark:bg-harvest dark:text-ink"
-          >
-            <Plus size={14} />
-            <span>{t('pool.contribute', 'Contribute Produce')}</span>
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={action.onClick}
+          className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-bold transition-all shadow-sm ${action.className}`}
+        >
+          <ActionIcon size={14} />
+          <span>{action.label}</span>
+        </button>
       </div>
+
+      {/* Supply Pool Detail Modal */}
+      {showDetailModal && (
+        <SupplyPoolDetailModal
+          poolId={pool._id}
+          currentUser={currentUser}
+          onClose={() => setShowDetailModal(false)}
+          onUpdated={() => {
+            if (onContributed) onContributed();
+          }}
+        />
+      )}
 
       {/* Contribution Modal */}
       {showContributeModal && (

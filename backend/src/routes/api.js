@@ -13,13 +13,14 @@ import {
   anomalies,
 } from '../controllers/intelligenceController.js';
 import { modelPerformance, adminOverview, alerts, markAlertRead } from '../controllers/adminController.js';
-import { globalSearch } from '../controllers/searchController.js';
+import { globalSearch, assistantChat } from '../controllers/searchController.js';
 import { marketplaceRouter } from './marketplace.js';
 
 export const apiRouter = Router();
 
 apiRouter.use(requireAuth);
 apiRouter.get('/search', globalSearch);
+apiRouter.post('/assistant/chat', assistantChat);
 apiRouter.use('/marketplace', marketplaceRouter);
 apiRouter.get('/dashboard/seller', requireRole('seller', 'admin'), sellerDashboard);
 apiRouter.get('/markets', markets);
