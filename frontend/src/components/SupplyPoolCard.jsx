@@ -59,14 +59,14 @@ export function SupplyPoolCard({ pool, currentUser, onContributed }) {
           <div>
             <div className="flex items-center gap-2">
               <h4 className="text-base font-bold text-ink dark:text-night-text">
-                {pool.commodityName} — {t('pool.fpoPool', 'FPO Supply Pool')}
+                {pool.commodityName} — Coordinated Supply Pool
               </h4>
               <span className="rounded-full bg-forest/15 px-2.5 py-0.5 text-[10px] font-bold text-forest uppercase">
                 {pool.status?.replace('_', ' ')}
               </span>
             </div>
             <p className="text-[11px] text-mute">
-              {t('pool.destination', 'Destination')}: {pool.destinationLocation} • {pool.qualityGrade || 'Grade A'}
+              Temporary multi-farmer order aggregation • {t('pool.destination', 'Destination')}: {pool.destinationLocation} • {pool.qualityGrade || 'Grade A'}
             </p>
           </div>
         </div>

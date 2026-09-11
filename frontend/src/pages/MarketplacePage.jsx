@@ -23,6 +23,7 @@ import {
   Box,
   Truck,
   ArrowRight,
+  ShieldCheck,
 } from 'lucide-react';
 
 function CreateListingForm({ commodities, onClose, onCreated }) {
@@ -291,6 +292,10 @@ function CreateRequirementForm({ commodities, onClose, onCreated }) {
 
 function ListingCard({ listing, currentUser, onMatch }) {
   const { t } = useTranslation();
+  const isBuyer = currentUser?.role === 'buyer';
+  const isFarmer = currentUser?.role === 'farmer';
+  const isSeller = currentUser?.role === 'seller';
+
   const gradeColor = listing.qualityGrade === 'A' ? 'bg-forest/15 text-forest' : listing.qualityGrade === 'B' ? 'bg-harvest/15 text-harvest' : 'bg-earth text-ink';
 
   return (
@@ -331,13 +336,13 @@ function ListingCard({ listing, currentUser, onMatch }) {
 
       <div className="flex items-center justify-between pt-2 border-t border-line/60 dark:border-night-mute/30">
         <span className="rounded-full bg-forest/10 px-2.5 py-0.5 text-[10px] font-bold text-forest uppercase">
-          DIRECT TRADE
+          {isBuyer ? 'DIRECT SUPPLIER' : 'DIRECT TRADE'}
         </span>
         <button
           onClick={() => onMatch(listing, 'listing')}
           className="flex items-center gap-1 rounded-lg bg-forest px-3 py-1.5 text-xs font-bold text-white hover:bg-forest-deep transition-colors dark:bg-harvest dark:text-ink"
         >
-          <span>Find Direct Buyers</span>
+          <span>{isBuyer ? 'Find Direct Suppliers' : 'Find Direct Buyers'}</span>
           <ArrowRight size={13} />
         </button>
       </div>
@@ -347,6 +352,7 @@ function ListingCard({ listing, currentUser, onMatch }) {
 
 function RequirementCard({ requirement, currentUser, onMatch }) {
   const { t } = useTranslation();
+  const isBuyer = currentUser?.role === 'buyer';
   const gradeColor = requirement.qualityGrade === 'A' ? 'bg-forest/15 text-forest' : requirement.qualityGrade === 'Any' ? 'bg-info/15 text-info' : 'bg-earth text-ink';
 
   return (
@@ -395,7 +401,7 @@ function RequirementCard({ requirement, currentUser, onMatch }) {
           onClick={() => onMatch(requirement, 'requirement')}
           className="flex items-center gap-1 rounded-lg bg-harvest px-3 py-1.5 text-xs font-bold text-ink hover:bg-harvest/80 transition-colors"
         >
-          <span>Find Suppliers</span>
+          <span>{isBuyer ? 'Find Direct Suppliers' : 'Make Direct Offer'}</span>
           <ArrowRight size={13} />
         </button>
       </div>
@@ -417,6 +423,11 @@ export default function MarketplacePage() {
   const [showCreateListing, setShowCreateListing] = useState(false);
   const [showCreateRequirement, setShowCreateRequirement] = useState(false);
   const [filterCommodity, setFilterCommodity] = useState('');
+
+  const isBuyer = user?.role === 'buyer';
+  const isFarmer = user?.role === 'farmer';
+  const isSeller = user?.role === 'seller';
+  const isAdmin = user?.role === 'admin';
 
   async function loadData() {
     setLoading(true);
@@ -446,13 +457,13 @@ export default function MarketplacePage() {
   if (loading) return <LoadingSkeleton />;
 
   const filteredListings = filterCommodity
-    ? listings.filter((l) => l.commodityName.toLowerCase() === filterCommodity.toLowerCase())
+    ? listings.filter((l) => l.commodityName?.toLowerCase() === filterCommodity.toLowerCase())
     : listings;
   const filteredRequirements = filterCommodity
-    ? requirements.filter((r) => r.commodityName.toLowerCase() === filterCommodity.toLowerCase())
+    ? requirements.filter((r) => r.commodityName?.toLowerCase() === filterCommodity.toLowerCase())
     : requirements;
   const filteredPools = filterCommodity
-    ? supplyPools.filter((p) => p.commodityName.toLowerCase() === filterCommodity.toLowerCase())
+    ? supplyPools.filter((p) => p.commodityName?.toLowerCase() === filterCommodity.toLowerCase())
     : supplyPools;
 
   function handleMatch(item, type) {
@@ -463,12 +474,37 @@ export default function MarketplacePage() {
     }
   }
 
+  // Role-specific Header Copy
+  const headerEyebrow = isBuyer
+    ? 'Direct Sourcing & Farm Supplier Floor'
+    : isFarmer
+    ? 'Direct Trading & Aggregation Floor'
+    : isSeller
+    ? 'Agricultural Supply Floor'
+    : 'Platform Administration';
+
+  const headerTitle = isBuyer
+    ? t('marketplace.buyerTitle', 'Find Direct Suppliers')
+    : isFarmer
+    ? t('marketplace.farmerTitle', 'Farmer–Buyer Marketplace')
+    : isSeller
+    ? t('marketplace.sellerTitle', 'Agricultural Supply Marketplace')
+    : t('marketplace.adminTitle', 'Marketplace Oversight & Monitoring');
+
+  const headerSubtitle = isBuyer
+    ? t('marketplace.buyerSubtitle', 'Source produce directly from verified farmers and direct suppliers. Zero middleman markups.')
+    : isFarmer
+    ? t('marketplace.farmerSubtitle', 'Sell your farm harvest directly to verified institutional buyers with zero intermediary cut.')
+    : isSeller
+    ? t('marketplace.sellerSubtitle', 'Source fresh agricultural inventory and trade directly with bulk buyers and producer networks.')
+    : t('marketplace.adminSubtitle', 'Monitor active farm listings, procurement demands, direct trade offers, and supply aggregation pools.');
+
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Direct Trading & Aggregation Floor"
-        title={t('marketplace.title', 'Farmer–Buyer Marketplace')}
-        subtitle={t('marketplace.subtitle', 'Direct trade coordination between producers and commercial buyers. Zero reseller middlemen.')}
+        eyebrow={headerEyebrow}
+        title={headerTitle}
+        subtitle={headerSubtitle}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <DataStatusBadge status="SIMULATED" />
@@ -486,53 +522,74 @@ export default function MarketplacePage() {
         }
       />
 
-      {/* Tabs */}
+      {/* Role-Aware Tabs */}
       <div className="flex gap-1 rounded-xl bg-earth/60 p-1 dark:bg-night-lift">
         <button
           onClick={() => setTab('listings')}
           className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-bold transition-colors ${
-            tab === 'listings' ? 'bg-white text-forest shadow-sm dark:bg-night-card dark:text-harvest' : 'text-mute hover:text-ink'
+            tab === 'listings'
+              ? 'bg-white text-forest shadow-sm dark:bg-night-card dark:text-harvest'
+              : 'text-mute hover:text-ink'
           }`}
         >
           <ShoppingBasket size={14} className="mr-1.5 inline" />
-          {t('marketplace.produceListings', 'Farm Listings')} ({filteredListings.length})
+          {isBuyer ? 'Find Direct Suppliers' : t('marketplace.produceListings', 'Farm Listings')} ({filteredListings.length})
         </button>
         <button
           onClick={() => setTab('requirements')}
           className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-bold transition-colors ${
-            tab === 'requirements' ? 'bg-white text-forest shadow-sm dark:bg-night-card dark:text-harvest' : 'text-mute hover:text-ink'
+            tab === 'requirements'
+              ? 'bg-white text-forest shadow-sm dark:bg-night-card dark:text-harvest'
+              : 'text-mute hover:text-ink'
           }`}
         >
           <Package size={14} className="mr-1.5 inline" />
-          {t('marketplace.buyerRequirements', 'Direct Buyer Demands')} ({filteredRequirements.length})
+          {isBuyer ? 'My Procurement Demands' : t('marketplace.buyerRequirements', 'Direct Buyer Demands')} ({filteredRequirements.length})
         </button>
         <button
           onClick={() => setTab('pools')}
           className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-bold transition-colors ${
-            tab === 'pools' ? 'bg-white text-forest shadow-sm dark:bg-night-card dark:text-harvest' : 'text-mute hover:text-ink'
+            tab === 'pools'
+              ? 'bg-white text-forest shadow-sm dark:bg-night-card dark:text-harvest'
+              : 'text-mute hover:text-ink'
           }`}
         >
           <Users size={14} className="mr-1.5 inline" />
-          FPO Supply Pools ({filteredPools.length})
+          {isBuyer ? 'Supply Pool Opportunities' : 'FPO Supply Pools'} ({filteredPools.length})
         </button>
       </div>
 
-      {/* Create action buttons */}
-      <div className="flex justify-end">
-        {tab === 'listings' && (user?.role === 'farmer' || user?.role === 'seller' || user?.role === 'admin') ? (
+      {/* Role-Specific Action Buttons */}
+      <div className="flex justify-end gap-3">
+        {isBuyer ? (
+          <button
+            onClick={() => setShowCreateRequirement(true)}
+            className="flex items-center gap-2 rounded-lg bg-harvest px-5 py-2.5 text-sm font-bold text-ink hover:bg-harvest/80 transition-colors"
+          >
+            <Plus size={16} /> Post Procurement Demand
+          </button>
+        ) : (isFarmer || isSeller) ? (
           <button
             onClick={() => setShowCreateListing(true)}
             className="flex items-center gap-2 rounded-lg bg-forest px-5 py-2.5 text-sm font-bold text-white hover:bg-forest-deep transition-colors"
           >
             <Plus size={16} /> {t('marketplace.listProduce', 'List Produce')}
           </button>
-        ) : tab === 'requirements' && (user?.role === 'buyer' || user?.role === 'admin') ? (
-          <button
-            onClick={() => setShowCreateRequirement(true)}
-            className="flex items-center gap-2 rounded-lg bg-harvest px-5 py-2.5 text-sm font-bold text-ink hover:bg-harvest/80 transition-colors"
-          >
-            <Plus size={16} /> {t('marketplace.postRequirement', 'Post Direct Buying Requirement')}
-          </button>
+        ) : isAdmin ? (
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowCreateListing(true)}
+              className="flex items-center gap-2 rounded-lg bg-forest px-4 py-2 text-xs font-bold text-white hover:bg-forest-deep"
+            >
+              <Plus size={14} /> List Produce
+            </button>
+            <button
+              onClick={() => setShowCreateRequirement(true)}
+              className="flex items-center gap-2 rounded-lg bg-harvest px-4 py-2 text-xs font-bold text-ink hover:bg-harvest/80"
+            >
+              <Plus size={14} /> Post Requirement
+            </button>
+          </div>
         ) : null}
       </div>
 
@@ -541,8 +598,14 @@ export default function MarketplacePage() {
         filteredListings.length === 0 ? (
           <div className="rounded-mm border border-dashed border-line bg-earth/30 p-12 text-center dark:border-night-mute/20 dark:bg-night-lift/30">
             <ShoppingBasket size={32} className="mx-auto text-mute" />
-            <div className="mt-3 text-sm font-medium text-mute">{t('marketplace.noListings', 'No produce listings found')}</div>
-            <div className="mt-1 text-xs text-mute">List your farm produce to match with direct institutional buyers.</div>
+            <div className="mt-3 text-sm font-medium text-mute">
+              {isBuyer ? 'No direct suppliers found' : t('marketplace.noListings', 'No produce listings found')}
+            </div>
+            <div className="mt-1 text-xs text-mute">
+              {isBuyer
+                ? 'No active farm produce listings match your criteria. Post a procurement demand to notify verified suppliers.'
+                : 'List your farm produce to match with direct institutional buyers.'}
+            </div>
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -555,8 +618,14 @@ export default function MarketplacePage() {
         filteredRequirements.length === 0 ? (
           <div className="rounded-mm border border-dashed border-line bg-earth/30 p-12 text-center dark:border-night-mute/20 dark:bg-night-lift/30">
             <Package size={32} className="mx-auto text-mute" />
-            <div className="mt-3 text-sm font-medium text-mute">{t('marketplace.noRequirements', 'No buyer requirements found')}</div>
-            <div className="mt-1 text-xs text-mute">Direct buyers post procurement requirements here.</div>
+            <div className="mt-3 text-sm font-medium text-mute">
+              {isBuyer ? 'No procurement demands found' : t('marketplace.noRequirements', 'No buyer requirements found')}
+            </div>
+            <div className="mt-1 text-xs text-mute">
+              {isBuyer
+                ? 'Post direct buying requirements to connect with certified farm suppliers.'
+                : 'Direct buyers post procurement requirements here.'}
+            </div>
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -571,7 +640,9 @@ export default function MarketplacePage() {
           <div className="rounded-mm border border-dashed border-line bg-earth/30 p-12 text-center dark:border-night-mute/20 dark:bg-night-lift/30">
             <Users size={32} className="mx-auto text-mute" />
             <div className="mt-3 text-sm font-medium text-mute">No active supply pools found</div>
-            <div className="mt-1 text-xs text-mute">Supply pools are created when buyer orders exceed single-farmer harvest size.</div>
+            <div className="mt-1 text-xs text-mute">
+              Supply pools are created when buyer orders exceed single-farmer harvest size.
+            </div>
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">

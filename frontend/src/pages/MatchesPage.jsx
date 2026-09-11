@@ -388,7 +388,11 @@ export default function MatchesPage() {
       <PageHeader
         eyebrow={t('matches.eyebrow', 'AI Trade Viability & Matching Engine')}
         title={t('matches.title', 'Produce–Demand Intelligence')}
-        subtitle={t('matches.subtitle', 'Ranks direct buyers by True Net Farmer Realization, logistics cost, and transit spoilage risk rather than gross price alone.')}
+        subtitle={
+          user?.role === 'buyer'
+            ? 'Ranks verified farm suppliers by delivered economic viability, logistics freight, and transit freshness preservation.'
+            : 'Ranks direct buyers by True Net Farmer Realization, logistics cost, and transit spoilage risk rather than gross price alone.'
+        }
         actions={
           <div className="flex items-center gap-2">
             <DataStatusBadge status="AI_FORECAST" />
@@ -411,7 +415,7 @@ export default function MatchesPage() {
           }`}
         >
           <Zap size={16} />
-          <span>Direct Buyer Matches ({matches.length})</span>
+          <span>{user?.role === 'buyer' ? 'Direct Supplier Matches' : 'Direct Trade Matches'} ({matches.length})</span>
         </button>
 
         <button
@@ -424,7 +428,7 @@ export default function MatchesPage() {
           }`}
         >
           <Users size={16} />
-          <span>FPO Supply Pools ({supplyPools.length})</span>
+          <span>Coordinated Supply Pools ({supplyPools.length})</span>
         </button>
       </div>
 

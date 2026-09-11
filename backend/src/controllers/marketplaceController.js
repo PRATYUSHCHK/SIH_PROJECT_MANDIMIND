@@ -980,7 +980,7 @@ export const createOffer = asyncHandler(async (req, res) => {
       spoilageRiskScore: viability.spoilage.spoilageRiskScore,
       expectedSpoilageLossInr: viability.priceWaterfall.spoilageRiskLossPerKg * qty,
       pickupLocation: listing.location,
-      deliveryLocation: requirement?.deliveryLocation || 'Buyer Facility',
+      deliveryLocation: requirement?.deliveryLocation || req.user.location || 'Buyer Facility',
     },
     dataStatus: 'SIMULATED',
   });
